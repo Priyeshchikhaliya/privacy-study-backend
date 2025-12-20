@@ -54,17 +54,13 @@ const completePayloadSchema = z.object({
   context: z.string().min(1).optional(),
   images: z.array(imageSchema).min(1),
   demographics: demographicsSchema,
-  obfuscation_response: obfuscationSchema.nullable(),
+  obfuscation_response: obfuscationSchema,
 });
 
 const progressPayloadSchema = z
   .object({
-    // allow partial saves; you can send anything you want here
-    // but we’ll keep it as an object; you can optionally include a stage.
-    stage: z.string().optional(),
-    data: z.any().optional(),
-    // or you can just send the full draft payload under "draft"
-    draft: z.any().optional(),
+    stage: z.string().min(1).optional(),
+    draft: z.record(z.string(), z.any()).optional(),
   })
   .passthrough();
 

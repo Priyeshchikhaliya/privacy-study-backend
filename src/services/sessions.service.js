@@ -9,7 +9,7 @@ async function createSession({ context = null } = {}) {
     [id, context]
   );
 
-  return { session_id: id };
+  return { session_id: id, context };
 }
 
 async function getSessionById(sessionId) {
@@ -19,18 +19,19 @@ async function getSessionById(sessionId) {
   return rows[0] || null;
 }
 
-async function saveProgress(sessionId, progressObject) {
+async function saveProgress(sessionId, { stage = null, draft = {} } = {}) {
   // Merge progress into payload_draft (JSONB merge).
   // If payload_draft is NULL, coalesce to {}.
   const { rows } = await pool.query(
     `
     UPDATE sessions
     SET payload_draft = COALESCE(payload_draft, '{}'::jsonb) || $2::jsonb,
+        stage = COALESCE($3, stage),
         updated_at = NOW()
     WHERE id = $1
     RETURNING id, status, updated_at
     `,
-    [sessionId, JSON.stringify(progressObject)]
+    [sessionId, JSON.stringify(draft || {}), stage]
   );
 
   return rows[0] || null;

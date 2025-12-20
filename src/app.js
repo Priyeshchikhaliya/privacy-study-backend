@@ -1,6 +1,8 @@
 const express = require("express");
 const { healthRouter } = require("./routes/health.routes");
 const { sessionsRouter } = require("./routes/sessions.routes");
+const { scenariosRouter } = require("./routes/scenarios.routes");
+const { adminRouter } = require("./routes/admin.routes");
 
 function createApp() {
   const app = express();
@@ -8,7 +10,9 @@ function createApp() {
   app.use(express.json({ limit: "10mb" }));
 
   app.use("/api", healthRouter);
+  app.use("/api", scenariosRouter);
   app.use("/api", sessionsRouter);
+  app.use("/api", adminRouter);
 
   // 404
   app.use((req, res) => {

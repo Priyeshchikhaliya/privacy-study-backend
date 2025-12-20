@@ -5,15 +5,85 @@ const {
   completeSession,
 } = require("../services/sessions.service");
 const {
+  getContextById,
+  getEnabledContextsWithCompletedCounts,
+} = require("../services/contexts.service");
+const {
   progressPayloadSchema,
   completePayloadSchema,
 } = require("../schemas/session.schemas");
 
+function pickBalancedContext(rows) {
+  if (!rows || rows.length === 0) return null;
+  const minCount = Math.min(
+    ...rows.map((row) => Number(row.completed_count || 0))
+  );
+  const candidates = rows.filter(
+    (row) => Number(row.completed_count || 0) === minCount
+  );
+  const idx = Math.floor(Math.random() * candidates.length);
+  return candidates[idx] || null;
+}
+
 async function postCreateSession(req, res) {
   const context =
-    typeof req.body?.context === "string" ? req.body.context : null;
-  const out = await createSession({ context });
-  res.status(201).json(out);
+    typeof req.body?.context === "string" ? req.body.context.trim() : null;
+
+  let scenario = null;
+  if (context) {
+    const existing = await getContextById(context);
+    if (!existing) {
+      return res.status(400).json({ error: "Unknown context id" });
+    }
+    if (!existing.enabled) {
+      return res.status(400).json({ error: "Context is disabled" });
+    }
+    scenario = existing;
+  } else {
+    const enabledContexts = await getEnabledContextsWithCompletedCounts();
+    scenario = pickBalancedContext(enabledContexts);
+    if (!scenario) {
+      return res.status(409).json({ error: "No enabled contexts available" });
+    }
+  }
+
+  const out = await createSession({ context: scenario.id });
+  res.status(201).json({
+    session_id: out.session_id,
+    context: scenario.id,
+    scenario: {
+      id: scenario.id,
+      title: scenario.title,
+      description: scenario.description,
+    },
+  });
+}
+
+async function getSession(req, res) {
+  const sessionId = req.params.id;
+  const session = await getSessionById(sessionId);
+  if (!session) return res.status(404).json({ error: "Session not found" });
+
+  const scenario = session.context
+    ? await getContextById(session.context)
+    : null;
+
+  res.json({
+    session_id: session.id,
+    status: session.status,
+    context: session.context,
+    scenario: scenario
+      ? {
+          id: scenario.id,
+          title: scenario.title,
+          description: scenario.description,
+        }
+      : null,
+    stage: session.stage,
+    started_at: session.started_at,
+    updated_at: session.updated_at,
+    completed_at: session.completed_at,
+  });
 }
 
 async function putProgress(req, res) {
@@ -33,8 +103,15 @@ async function putProgress(req, res) {
     return res.status(409).json({ error: "Session already completed" });
   }
 
-  const updated = await saveProgress(sessionId, parsed.data);
-  res.json({ ok: true, session_id: sessionId, updated_at: updated.updated_at });
+  const updated = await saveProgress(sessionId, {
+    stage: parsed.data.stage ?? null,
+    draft: parsed.data.draft ?? {},
+  });
+  res.json({
+    ok: true,
+    session_id: sessionId,
+    updated_at: updated.updated_at,
+  });
 }
 
 async function postComplete(req, res) {
@@ -79,6 +156,7 @@ async function postComplete(req, res) {
 
 module.exports = {
   postCreateSession,
+  getSession,
   putProgress,
   postComplete,
 };
