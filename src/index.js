@@ -1,16 +1,18 @@
-require("dotenv").config();
-const express = require("express");
+const { env } = require("./config/env");
+const { createApp } = require("./app");
+const { migrate } = require("./db/migrate");
 
-const app = express();
-app.use(express.json());
+async function main() {
+  await migrate();
 
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() });
-});
+  const app = createApp();
 
-const port = process.env.PORT || 3001;
-const host = "127.0.0.1"; // keep backend local; nginx will proxy
+  app.listen(env.port, env.host, () => {
+    console.log(`Backend listening on http://${env.host}:${env.port}`);
+  });
+}
 
-app.listen(port, host, () => {
-  console.log(`Backend listening on http://${host}:${port}`);
+main().catch((err) => {
+  console.error("Fatal startup error:", err);
+  process.exit(1);
 });
