@@ -29,19 +29,19 @@ const demographicsSchema = z.object({
   gender: z.string().min(1),
   academic_background: z.string().min(1),
   current_residence: z.string().min(1),
-  ATI: z.record(z.string(), z.number().int()).optional(),
-  IUIPC: z.record(z.string(), z.number().int()).optional(),
+  ATI: z.record(z.string(), z.number().int().min(1).max(7)).optional(),
+  IUIPC: z.record(z.string(), z.number().int().min(1).max(7)).optional(),
 });
 
 const obfuscationSchema = z.object({
   imageId: z.string().min(1),
-  imageUrl: z.string().min(1).optional(),
+  imageUrl: z.string().min(1).nullable().optional(),
   obfuscationType: z.string().min(1),
   methodsSelected: z.array(z.string()).default([]),
   basedOnRegions: z.boolean(),
   numRegionsUsed: z.number().int().min(0),
-  comfortSharing: z.number().int().min(1).max(5).optional(),
-  perceivedEffectiveness: z.number().int().min(1).max(5).optional(),
+  comfortSharing: z.number().int().min(1).max(5),
+  perceivedEffectiveness: z.number().int().min(1).max(5),
   wantsObfuscation: z.boolean(),
   comment: z.string().optional().nullable(),
   timestamp: z.string().min(1).optional(),
@@ -54,7 +54,7 @@ const completePayloadSchema = z.object({
   context: z.string().min(1).optional(),
   images: z.array(imageSchema).min(1),
   demographics: demographicsSchema,
-  obfuscation_response: obfuscationSchema,
+  obfuscation_response: obfuscationSchema.nullable(),
 });
 
 const progressPayloadSchema = z
