@@ -61,6 +61,7 @@ async function postCreateSession(req, res) {
 
 async function getSession(req, res) {
   const sessionId = req.params.id;
+  const includeDraft = req.query.includeDraft === "1";
   const session = await getSessionById(sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
 
@@ -68,7 +69,7 @@ async function getSession(req, res) {
     ? await getContextById(session.context)
     : null;
 
-  res.json({
+  const response = {
     session_id: session.id,
     status: session.status,
     context: session.context,
@@ -83,7 +84,13 @@ async function getSession(req, res) {
     started_at: session.started_at,
     updated_at: session.updated_at,
     completed_at: session.completed_at,
-  });
+  };
+
+  if (includeDraft) {
+    response.payload_draft = session.payload_draft ?? null;
+  }
+
+  res.json(response);
 }
 
 async function putProgress(req, res) {
