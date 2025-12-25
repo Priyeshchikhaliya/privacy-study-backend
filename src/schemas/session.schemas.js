@@ -34,7 +34,7 @@ const demographicsSchema = z.object({
 });
 
 const obfuscationSchema = z.object({
-  imageId: z.string().min(1),
+  imageId: z.string().min(1).nullable(),
   imageUrl: z.string().min(1).nullable().optional(),
   obfuscationType: z.string().min(1),
   methodsSelected: z.array(z.string()).default([]),
@@ -45,6 +45,9 @@ const obfuscationSchema = z.object({
   wantsObfuscation: z.boolean(),
   comment: z.string().optional().nullable(),
   timestamp: z.string().min(1).optional(),
+  skippedBecauseNoRegions: z.boolean().optional(),
+  skipped: z.boolean().optional(),
+  reason: z.string().optional(),
 });
 
 const completePayloadSchema = z.object({
