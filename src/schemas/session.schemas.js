@@ -50,6 +50,17 @@ const obfuscationSchema = z.object({
   reason: z.string().optional(),
 });
 
+const stageSchema = z.enum([
+  "welcome",
+  "annotate_started",
+  "annotate",
+  "annotate_done",
+  "obfuscation_started",
+  "obfuscation_done",
+  "demographics_done",
+  "completed",
+]);
+
 const completePayloadSchema = z.object({
   session_id: z.string().min(1),
   started_at: z.string().min(1).optional(),
@@ -62,7 +73,7 @@ const completePayloadSchema = z.object({
 
 const progressPayloadSchema = z
   .object({
-    stage: z.string().min(1).optional(),
+    stage: stageSchema.optional(),
     draft: z.record(z.string(), z.any()).optional(),
   })
   .passthrough();
