@@ -145,7 +145,13 @@ async function postComplete(req, res) {
 
   if (session.status === "completed") {
     // idempotent-ish: return success without rewriting
-    return res.json({ ok: true, session_id: sessionId, status: "completed" });
+    return res.json({
+      ok: true,
+      session_id: sessionId,
+      status: "completed",
+      alreadyCompleted: true,
+      completed_at: session.completed_at,
+    });
   }
 
   const result = await completeSession(sessionId, parsed.data);
