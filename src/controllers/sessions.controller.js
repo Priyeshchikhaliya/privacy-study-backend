@@ -104,6 +104,23 @@ async function putProgress(req, res) {
     });
   }
 
+  const warnKeys = ["session_id", "started_at", "context"];
+  const bodyKeys = req.body && typeof req.body === "object" ? req.body : {};
+  const draftKeys =
+    bodyKeys?.draft && typeof bodyKeys.draft === "object" ? bodyKeys.draft : {};
+  const flagged = warnKeys.filter(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(bodyKeys, key) ||
+      Object.prototype.hasOwnProperty.call(draftKeys, key)
+  );
+  if (flagged.length > 0) {
+    console.warn(
+      `Progress patch includes discouraged keys for ${sessionId}: ${flagged.join(
+        ", "
+      )}`
+    );
+  }
+
   const session = await getSessionById(sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
   if (session.status === "completed") {
