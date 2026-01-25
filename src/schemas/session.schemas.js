@@ -7,7 +7,12 @@ const bboxSchema = z.object({
   height: z.number().min(0).max(1),
 });
 
-const regionSchema = z.object({
+const reasonDetailSchema = z.object({
+  label: z.string().min(1),
+  description: z.string().min(1).optional(),
+});
+
+const legacyRegionSchema = z.object({
   region_id: z.string().min(1),
   bbox: bboxSchema,
   region_privacy_rating: z.number().int().min(1).max(4), // you used 1–4 in UI discussions
@@ -16,6 +21,19 @@ const regionSchema = z.object({
   reason_other: z.string().nullable().optional(),
   reason_category: z.string().min(1),
 });
+
+const updatedRegionSchema = z.object({
+  region_id: z.string().min(1),
+  bbox: bboxSchema,
+  region_privacy_rating: z.number().int().min(1).max(4), // you used 1–4 in UI discussions
+  regionType: z.string().min(1),
+  regionTypeOtherText: z.string().nullable().optional(),
+  reasons: z.array(z.string().min(1)).min(1),
+  reasonDetails: z.array(reasonDetailSchema).optional(),
+  otherReasonText: z.string().nullable().optional(),
+});
+
+const regionSchema = z.union([legacyRegionSchema, updatedRegionSchema]);
 
 const imageSchema = z.object({
   image_id: z.string().min(1),
