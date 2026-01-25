@@ -1,5 +1,5 @@
 const { pool } = require("./pool");
-const { CONTEXTS } = require("../config/contexts");
+const { CONTEXTS, CONTEXT_IDS } = require("../config/contexts");
 
 async function migrate() {
   // You can add more migrations later; for now keep it simple.
@@ -28,8 +28,12 @@ async function migrate() {
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT NOT NULL,
+    short_label TEXT NOT NULL DEFAULT '',
     enabled BOOLEAN NOT NULL DEFAULT true
   );
+
+  ALTER TABLE IF EXISTS contexts
+    ADD COLUMN IF NOT EXISTS short_label TEXT NOT NULL DEFAULT '';
 
   CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
   CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);
@@ -41,13 +45,24 @@ async function migrate() {
   for (const context of CONTEXTS) {
     await pool.query(
       `
-      INSERT INTO contexts (id, title, description)
-      VALUES ($1, $2, $3)
+      INSERT INTO contexts (id, title, description, short_label)
+      VALUES ($1, $2, $3, $4)
       ON CONFLICT (id) DO UPDATE
         SET title = EXCLUDED.title,
-            description = EXCLUDED.description
+            description = EXCLUDED.description,
+            short_label = EXCLUDED.short_label
       `,
-      [context.id, context.title, context.description]
+      [context.id, context.title, context.description, context.shortLabel || ""]
+    );
+  }
+
+  if (CONTEXT_IDS.length > 0) {
+    await pool.query(
+      `
+      DELETE FROM contexts
+      WHERE NOT (id = ANY($1))
+      `,
+      [CONTEXT_IDS]
     );
   }
 }

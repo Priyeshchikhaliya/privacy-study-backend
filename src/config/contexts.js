@@ -1,28 +1,39 @@
 const CONTEXTS = [
   {
-    id: "ar_assistant",
-    title: "AR home assistant",
+    id: "smart_camera",
+    title: "Smart home camera",
+    shortLabel: "Smart camera",
     description:
-      "Images are seen through an AR home assistant that recognizes objects in your home while you wear smart glasses.",
+      "Imagine this image comes from a smart home camera inside a private home (for example for security or activity detection).",
   },
   {
-    id: "vacuum_robot",
-    title: "Smart vacuum robot",
+    id: "social_media_ai",
+    title: "Social media sharing",
+    shortLabel: "Social media",
     description:
-      "Images are captured by a smart vacuum robot that maps your home to navigate and avoid obstacles.",
+      "Imagine this image is about to be shared on social media and is automatically analyzed by the platform before posting.",
   },
   {
     id: "furniture_scanner",
-    title: "Furniture shopping app",
+    title: "Room scanning / shopping app",
+    shortLabel: "Room scanner",
     description:
-      "Images are uploaded to a furniture shopping app that scans your room to recommend or place furniture.",
+      "Imagine this image is uploaded to a room-planning or shopping app to analyze your room and suggest furniture or layouts.",
   },
   {
-    id: "smart_camera",
-    title: "Smart home security camera",
+    id: "ar_assistant",
+    title: "AR home assistant",
+    shortLabel: "AR assistant",
     description:
-      "Images come from a smart home security camera that detects activity inside your home.",
+      "Imagine this image is analyzed by an augmented-reality assistant that helps you at home by recognizing objects or spaces.",
   },
 ];
 
-module.exports = { CONTEXTS };
+const CONTEXT_IDS = CONTEXTS.map((context) => context.id);
+const CONTEXT_ID_SET = new Set(CONTEXT_IDS);
+
+module.exports = {
+  CONTEXTS,
+  CONTEXT_IDS,
+  CONTEXT_ID_SET,
+};

@@ -42,9 +42,10 @@ async function postCreateSession(req, res) {
   } else {
     const enabledContexts = await getEnabledContextsWithCompletedCounts();
     scenario = pickBalancedContext(enabledContexts);
-    if (!scenario) {
-      return res.status(409).json({ error: "No enabled contexts available" });
-    }
+  }
+
+  if (!scenario) {
+    return res.status(409).json({ error: "No enabled contexts available" });
   }
 
   const out = await createSession({ context: scenario.id });
@@ -55,6 +56,9 @@ async function postCreateSession(req, res) {
       id: scenario.id,
       title: scenario.title,
       description: scenario.description,
+      name: scenario.title,
+      shortLabel: scenario.shortLabel || null,
+      annotationLine: scenario.description,
     },
   });
 }
@@ -78,6 +82,9 @@ async function getSession(req, res) {
           id: scenario.id,
           title: scenario.title,
           description: scenario.description,
+          name: scenario.title,
+          shortLabel: scenario.shortLabel || null,
+          annotationLine: scenario.description,
         }
       : null,
     stage: session.stage,

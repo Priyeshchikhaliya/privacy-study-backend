@@ -7,6 +7,9 @@ async function listScenarios(req, res) {
       id: context.id,
       title: context.title,
       description: context.description,
+      name: context.title,
+      shortLabel: context.shortLabel || null,
+      annotationLine: context.description,
       enabled: context.enabled,
     })),
   });

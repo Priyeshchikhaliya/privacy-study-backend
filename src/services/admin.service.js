@@ -1,3 +1,4 @@
+const { CONTEXT_IDS } = require("../config/contexts");
 const { pool } = require("../db/pool");
 
 async function getContextOverview() {
@@ -13,9 +14,11 @@ async function getContextOverview() {
       COUNT(s.*) AS total
     FROM contexts c
     LEFT JOIN sessions s ON s.context = c.id
+    WHERE c.id = ANY($1)
     GROUP BY c.id, c.title, c.description, c.enabled
     ORDER BY c.id
-    `
+    `,
+    [CONTEXT_IDS]
   );
   return rows;
 }
