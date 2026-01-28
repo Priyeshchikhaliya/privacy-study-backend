@@ -1,9 +1,12 @@
 const {
   createSession,
   getSessionById,
+  getSessionWithImagesById,
   saveProgress,
   completeSession,
+  startSessionWithImages,
 } = require("../services/sessions.service");
+const { CONTEXT_ID_SET } = require("../config/contexts");
 const {
   getContextById,
   getEnabledContextsWithCompletedCounts,
@@ -61,6 +64,58 @@ async function postCreateSession(req, res) {
       annotationLine: scenario.description,
     },
   });
+}
+
+const IMAGE_CATEGORIES = [
+  "Education_knowledge",
+  "Health_medical",
+  "Household_children",
+  "Intimate_private_space",
+  "Lifestyle_habits",
+  "Religion_culture",
+  "SES_living_standard",
+  "Work_from_home",
+];
+
+const ALLOWED_N = new Set([8, 16, 24]);
+
+function parseNParam(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (ALLOWED_N.has(parsed)) return parsed;
+  return 8;
+}
+
+async function postStartSession(req, res) {
+  const context =
+    typeof req.body?.context === "string" ? req.body.context.trim() : "";
+  if (!context || !CONTEXT_ID_SET.has(context)) {
+    return res.status(400).json({ error: "invalid_context" });
+  }
+
+  const nImages = parseNParam(req.query?.n);
+  const perCategory = nImages / IMAGE_CATEGORIES.length;
+
+  const existingSessionId = req.header("x-session-id");
+  if (existingSessionId) {
+    const existing = await getSessionWithImagesById(existingSessionId);
+    if (existing && existing.status === "in_progress") {
+      return res.json({ session: existing });
+    }
+  }
+
+  const result = await startSessionWithImages({
+    context,
+    nImages,
+    perCategory,
+    categories: IMAGE_CATEGORIES,
+    datasetVersion: "v1",
+  });
+
+  if (result?.error) {
+    return res.status(409).json(result.error);
+  }
+
+  return res.status(201).json({ session: result });
 }
 
 async function getSession(req, res) {
@@ -193,6 +248,7 @@ async function postComplete(req, res) {
 
 module.exports = {
   postCreateSession,
+  postStartSession,
   getSession,
   putProgress,
   postComplete,
