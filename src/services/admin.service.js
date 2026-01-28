@@ -56,8 +56,43 @@ async function getSessionDetails(sessionId) {
   return rows[0] || null;
 }
 
+async function getImageCategorySummary() {
+  const { rows } = await pool.query(
+    `
+    SELECT
+      category,
+      COUNT(*) FILTER (WHERE enabled = true)::int AS enabled_images,
+      COALESCE(SUM(assigned_count), 0)::int AS assigned_sum,
+      COALESCE(SUM(completed_count), 0)::int AS completed_sum
+    FROM images
+    GROUP BY category
+    ORDER BY category ASC
+    `
+  );
+  return rows;
+}
+
+async function getMetricsSummary() {
+  const { rows } = await pool.query(
+    `
+    SELECT
+      COUNT(*)::int AS completed_sessions,
+      CASE
+        WHEN COUNT(*) = 0 THEN NULL
+        ELSE ROUND(AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) / 60.0)::numeric, 2)::float8
+      END AS avg_completion_minutes
+    FROM sessions
+    WHERE completed_at IS NOT NULL
+      AND started_at IS NOT NULL
+    `
+  );
+  return rows[0] || { avg_completion_minutes: null, completed_sessions: 0 };
+}
+
 module.exports = {
   getContextOverview,
   listSessions,
   getSessionDetails,
+  getImageCategorySummary,
+  getMetricsSummary,
 };
