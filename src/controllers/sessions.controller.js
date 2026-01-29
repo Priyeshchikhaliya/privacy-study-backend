@@ -16,6 +16,51 @@ const {
   completePayloadSchema,
 } = require("../schemas/session.schemas");
 
+const normalizeImageUrlValue = (value) => {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (trimmed.startsWith("/images_v1/")) return trimmed;
+  const match = trimmed.match(/\/images_v1\/[^?#]+(?:\?[^#]*)?/);
+  return match ? match[0] : trimmed;
+};
+
+const normalizeDraftImageUrls = (draft) => {
+  if (!draft || typeof draft !== "object") return draft;
+  if (!Array.isArray(draft.images)) return draft;
+
+  let changed = false;
+  const nextImages = draft.images.map((img) => {
+    if (!img || typeof img !== "object") return img;
+    const next = { ...img };
+    if ("imageUrl" in next) {
+      const normalized = normalizeImageUrlValue(next.imageUrl);
+      if (normalized !== next.imageUrl) {
+        next.imageUrl = normalized;
+        changed = true;
+      }
+    }
+    if ("image_url" in next) {
+      const normalized = normalizeImageUrlValue(next.image_url);
+      if (normalized !== next.image_url) {
+        next.image_url = normalized;
+        changed = true;
+      }
+    }
+    if ("src" in next) {
+      const normalized = normalizeImageUrlValue(next.src);
+      if (normalized !== next.src) {
+        next.src = normalized;
+        changed = true;
+      }
+    }
+    return next;
+  });
+
+  if (!changed) return draft;
+  return { ...draft, images: nextImages };
+};
+
 function pickBalancedContext(rows) {
   if (!rows || rows.length === 0) return null;
   const minCount = Math.min(
@@ -149,7 +194,9 @@ async function getSession(req, res) {
   };
 
   if (includeDraft) {
-    response.payload_draft = session.payload_draft ?? null;
+    response.payload_draft = normalizeDraftImageUrls(
+      session.payload_draft ?? null
+    );
   }
 
   res.json(response);
@@ -191,7 +238,7 @@ async function putProgress(req, res) {
 
   const updated = await saveProgress(sessionId, {
     stage: parsed.data.stage ?? null,
-    draft: parsed.data.draft ?? {},
+    draft: normalizeDraftImageUrls(parsed.data.draft ?? {}),
   });
   res.json({
     ok: true,
