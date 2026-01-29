@@ -206,21 +206,60 @@ async function saveProgress(sessionId, { stage = null, draft = {} } = {}) {
 }
 
 async function completeSession(sessionId, payloadFinal) {
-  // Lock completion: only complete if currently in_progress
-  const { rows } = await pool.query(
-    `
-    UPDATE sessions
-    SET status = 'completed',
-        payload_final = $2::jsonb,
-        completed_at = NOW(),
-        updated_at = NOW()
-    WHERE id = $1 AND status = 'in_progress'
-    RETURNING id, status, completed_at
-    `,
-    [sessionId, JSON.stringify(payloadFinal)]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
 
-  return rows[0] || null;
+    // Lock completion: only complete if currently in_progress
+    const { rows } = await client.query(
+      `
+      UPDATE sessions
+      SET status = 'completed',
+          payload_final = $2::jsonb,
+          completed_at = NOW(),
+          updated_at = NOW()
+      WHERE id = $1 AND status = 'in_progress'
+      RETURNING id, status, completed_at
+      `,
+      [sessionId, JSON.stringify(payloadFinal)]
+    );
+
+    const result = rows[0] || null;
+    if (!result) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    await client.query(
+      `
+      UPDATE session_images
+      SET completed_at = NOW()
+      WHERE session_id = $1 AND completed_at IS NULL
+      `,
+      [sessionId]
+    );
+
+    await client.query(
+      `
+      UPDATE images
+      SET completed_count = completed_count + 1
+      WHERE image_id IN (
+        SELECT image_id
+        FROM session_images
+        WHERE session_id = $1
+      )
+      `,
+      [sessionId]
+    );
+
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 module.exports = {
