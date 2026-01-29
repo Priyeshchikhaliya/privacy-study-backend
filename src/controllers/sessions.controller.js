@@ -131,10 +131,23 @@ function parseNParam(value) {
 }
 
 async function postStartSession(req, res) {
-  const context =
+  let context =
     typeof req.body?.context === "string" ? req.body.context.trim() : "";
-  if (!context || !CONTEXT_ID_SET.has(context)) {
-    return res.status(400).json({ error: "invalid_context" });
+  if (context) {
+    const existing = await getContextById(context);
+    if (!existing) {
+      return res.status(400).json({ error: "invalid_context" });
+    }
+    if (!existing.enabled) {
+      return res.status(400).json({ error: "context_disabled" });
+    }
+  } else {
+    const enabledContexts = await getEnabledContextsWithCompletedCounts();
+    const scenario = pickBalancedContext(enabledContexts);
+    if (!scenario) {
+      return res.status(409).json({ error: "No enabled contexts available" });
+    }
+    context = scenario.id;
   }
 
   const nImages = parseNParam(req.query?.n);
