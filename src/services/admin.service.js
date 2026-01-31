@@ -72,6 +72,71 @@ async function getImageCategorySummary() {
   return rows;
 }
 
+async function listImagesByCategory(category) {
+  const { rows } = await pool.query(
+    `
+    SELECT image_id
+    FROM images
+    WHERE category = $1
+    ORDER BY image_id ASC
+    `,
+    [category]
+  );
+  return rows;
+}
+
+const selectImageFromPayload = (payload, imageId) => {
+  if (!payload || typeof payload !== "object") return null;
+  const images = Array.isArray(payload.images) ? payload.images : [];
+  if (images.length === 0) return null;
+  return (
+    images.find(
+      (img) => (img?.image_id ?? img?.id ?? null) === imageId
+    ) || null
+  );
+};
+
+async function listImageSessions(imageId) {
+  const { rows } = await pool.query(
+    `
+    SELECT s.id, s.status, s.context, s.stage, s.started_at, s.completed_at,
+           s.payload_draft, s.payload_final
+    FROM sessions s
+    JOIN session_images si ON si.session_id = s.id
+    WHERE si.image_id = $1
+    ORDER BY s.started_at DESC
+    `,
+    [imageId]
+  );
+
+  return rows.map((row) => {
+    const payload =
+      row.payload_final && typeof row.payload_final === "object"
+        ? row.payload_final
+        : row.payload_draft && typeof row.payload_draft === "object"
+        ? row.payload_draft
+        : null;
+    const source = row.payload_final
+      ? "final"
+      : row.payload_draft
+      ? "draft"
+      : "none";
+    const image = payload ? selectImageFromPayload(payload, imageId) : null;
+    return {
+      session_id: row.id,
+      status: row.status,
+      context: row.context,
+      stage: row.stage,
+      started_at: row.started_at,
+      completed_at: row.completed_at,
+      source,
+      image: image
+        ? { ...image, image_id: image.image_id ?? image.id ?? imageId }
+        : null,
+    };
+  });
+}
+
 async function getMetricsSummary() {
   const { rows } = await pool.query(
     `
@@ -94,5 +159,7 @@ module.exports = {
   listSessions,
   getSessionDetails,
   getImageCategorySummary,
+  listImagesByCategory,
+  listImageSessions,
   getMetricsSummary,
 };

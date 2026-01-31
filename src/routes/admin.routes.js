@@ -7,6 +7,8 @@ const {
   getSession,
   postContextEnabled,
   getImagesSummary,
+  getImagesByCategory,
+  getImageSessions,
   getMetrics,
 } = require("../controllers/admin.controller");
 
@@ -19,5 +21,7 @@ router.get("/admin/sessions", asyncHandler(getSessions));
 router.get("/admin/sessions/:id", asyncHandler(getSession));
 router.post("/admin/contexts/:id/enabled", asyncHandler(postContextEnabled));
 router.get("/admin/images/summary", asyncHandler(getImagesSummary));
+router.get("/admin/images", asyncHandler(getImagesByCategory));
+router.get("/admin/images/:imageId/sessions", asyncHandler(getImageSessions));
 
 module.exports = { adminRouter: router };

@@ -3,6 +3,8 @@ const {
   listSessions,
   getSessionDetails,
   getImageCategorySummary,
+  listImagesByCategory,
+  listImageSessions,
   getMetricsSummary,
 } = require("../services/admin.service");
 const { setContextEnabled, getContextById } = require("../services/contexts.service");
@@ -87,6 +89,34 @@ async function getImagesSummary(req, res) {
   }
 }
 
+async function getImagesByCategory(req, res) {
+  try {
+    const category = req.query.category;
+    if (!category) {
+      return res.status(400).json({ error: "category is required" });
+    }
+    const images = await listImagesByCategory(category);
+    res.json({ category, images });
+  } catch (err) {
+    console.error("Admin images list error:", err);
+    res.status(500).json({ error: "server_error" });
+  }
+}
+
+async function getImageSessions(req, res) {
+  try {
+    const imageId = req.params.imageId;
+    if (!imageId) {
+      return res.status(400).json({ error: "imageId is required" });
+    }
+    const sessions = await listImageSessions(imageId);
+    res.json({ image_id: imageId, sessions });
+  } catch (err) {
+    console.error("Admin image sessions error:", err);
+    res.status(500).json({ error: "server_error" });
+  }
+}
+
 module.exports = {
   getOverview,
   getMetrics,
@@ -94,4 +124,6 @@ module.exports = {
   getSession,
   postContextEnabled,
   getImagesSummary,
+  getImagesByCategory,
+  getImageSessions,
 };
