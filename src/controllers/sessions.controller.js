@@ -122,12 +122,12 @@ const IMAGE_CATEGORIES = [
   "Work_from_home",
 ];
 
-const ALLOWED_N = new Set([8, 16, 24]);
+const ALLOWED_N = new Set([16]);
 
 function parseNParam(value) {
   const parsed = Number.parseInt(value, 10);
   if (ALLOWED_N.has(parsed)) return parsed;
-  return 8;
+  return 16;
 }
 
 async function postStartSession(req, res) {
