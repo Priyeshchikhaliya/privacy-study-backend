@@ -37,7 +37,7 @@ const regionSchema = z.union([legacyRegionSchema, updatedRegionSchema]);
 
 const imageSchema = z.object({
   image_id: z.string().min(1),
-  image_rating: z.number().int().min(1).max(5), // looks like 1–5
+  image_rating: z.number().int().min(1).max(4), // image-level 1–4
   no_sensitive: z.boolean(),
   regions: z.array(regionSchema),
 });
