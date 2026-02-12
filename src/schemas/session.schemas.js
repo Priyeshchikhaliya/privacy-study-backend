@@ -12,10 +12,48 @@ const reasonDetailSchema = z.object({
   description: z.string().min(1).optional(),
 });
 
+const APPROPRIATENESS_VALUES = [
+  "slightly_inappropriate",
+  "moderately_inappropriate",
+  "very_inappropriate",
+  "completely_inappropriate",
+  "slightly_appropriate",
+  "moderately_appropriate",
+  "very_appropriate",
+  "completely_appropriate",
+  "difficult_to_say",
+];
+
+const INFORMATION_TYPE_VALUES = [
+  "Personally Identifiable Information",
+  "Location",
+  "Personal Interests",
+  "Social Context",
+  "Others' Private Information",
+  "Others",
+  "None",
+];
+
+const obfuscationMethodSchema = z.enum([
+  "blackbox",
+  "blur",
+  "censor",
+  "avatar",
+]);
+
+const hasValidInformationTypeSelection = (values) => {
+  const selected = Array.isArray(values) ? values : [];
+  if (selected.length === 0) return false;
+  const hasOthers = selected.includes("Others");
+  const hasNone = selected.includes("None");
+  if ((hasOthers || hasNone) && selected.length > 1) return false;
+  return true;
+};
+
 const legacyRegionSchema = z.object({
   region_id: z.string().min(1),
   bbox: bboxSchema,
-  region_privacy_rating: z.number().int().min(1).max(4), // you used 1–4 in UI discussions
+  region_privacy_rating: z.number().int().min(1).max(4),
   region_type: z.string().min(1),
   region_type_other: z.string().nullable().optional(),
   reason_other: z.string().nullable().optional(),
@@ -25,7 +63,7 @@ const legacyRegionSchema = z.object({
 const updatedRegionSchema = z.object({
   region_id: z.string().min(1),
   bbox: bboxSchema,
-  region_privacy_rating: z.number().int().min(1).max(4), // you used 1–4 in UI discussions
+  region_privacy_rating: z.number().int().min(1).max(4),
   regionType: z.string().min(1),
   regionTypeOtherText: z.string().nullable().optional(),
   reasons: z.array(z.string().min(1)).min(1),
@@ -33,14 +71,56 @@ const updatedRegionSchema = z.object({
   otherReasonText: z.string().nullable().optional(),
 });
 
-const regionSchema = z.union([legacyRegionSchema, updatedRegionSchema]);
+const redesignedRegionSchema = z
+  .object({
+    region_id: z.string().min(1),
+    bbox: bboxSchema,
+    appropriateness_rating: z.enum(APPROPRIATENESS_VALUES),
+    information_types: z.array(z.enum(INFORMATION_TYPE_VALUES)).min(1),
+    region_privacy_rating: z.number().int().min(1).max(4).nullable().optional(),
+    reason_category: z.string().nullable().optional(),
+    reasons: z.array(z.string().min(1)).optional(),
+  })
+  .refine((region) => hasValidInformationTypeSelection(region.information_types), {
+    message: '"Others" and "None" must not be combined with other information types.',
+    path: ["information_types"],
+  });
 
-const imageSchema = z.object({
+const regionSchema = z.union([
+  legacyRegionSchema,
+  updatedRegionSchema,
+  redesignedRegionSchema,
+]);
+
+const legacyImageSchema = z.object({
   image_id: z.string().min(1),
-  image_rating: z.number().int().min(1).max(4), // image-level 1–4
+  image_rating: z.number().int().min(1).max(4),
   no_sensitive: z.boolean(),
   regions: z.array(regionSchema),
 });
+
+const redesignedImageSchema = z
+  .object({
+    image_id: z.string().min(1),
+    statement: z.number().int().min(1).max(2),
+    overall_sensitivity: z.number().int().min(1).max(4),
+    obfuscation_method: obfuscationMethodSchema.nullable().optional(),
+    regions: z.array(regionSchema),
+  })
+  .refine(
+    (image) => {
+      const regions = Array.isArray(image.regions) ? image.regions : [];
+      if (regions.length === 0) return true;
+      return Boolean(image.obfuscation_method);
+    },
+    {
+      message:
+        "obfuscation_method is required when at least one region is annotated.",
+      path: ["obfuscation_method"],
+    }
+  );
+
+const imageSchema = z.union([legacyImageSchema, redesignedImageSchema]);
 
 const demographicsSchema = z.object({
   age_group: z.string().min(1),
@@ -86,7 +166,7 @@ const completePayloadSchema = z.object({
   context: z.string().min(1).optional(),
   images: z.array(imageSchema).min(1),
   demographics: demographicsSchema,
-  obfuscation_response: obfuscationSchema,
+  obfuscation_response: obfuscationSchema.nullable().optional(),
 });
 
 const progressPayloadSchema = z

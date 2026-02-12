@@ -42,7 +42,7 @@ async function getSessionWithImagesById(sessionId) {
 
   const { rows: imageRows } = await pool.query(
     `
-    SELECT si.image_id, i.category, si.order_index
+    SELECT si.image_id, i.category, si.order_index, si.statement
     FROM session_images si
     JOIN images i ON i.image_id = si.image_id
     WHERE si.session_id = $1
@@ -51,6 +51,21 @@ async function getSessionWithImagesById(sessionId) {
     [sessionId]
   );
   if (!imageRows || imageRows.length === 0) return null;
+  const halfPoint = Math.ceil((session.n_images || imageRows.length) / 2);
+  const images = imageRows.map((row) => {
+    const statement =
+      Number(row.statement) === 1 || Number(row.statement) === 2
+        ? Number(row.statement)
+        : row.order_index < halfPoint
+          ? 1
+          : 2;
+    return {
+      image_id: row.image_id,
+      category: row.category,
+      order_index: row.order_index,
+      statement,
+    };
+  });
 
   return {
     id: session.id,
@@ -59,7 +74,7 @@ async function getSessionWithImagesById(sessionId) {
     n_images: session.n_images,
     dataset_version: session.dataset_version,
     started_at: session.started_at,
-    images: imageRows,
+    images,
   };
 }
 
@@ -113,6 +128,9 @@ async function startSessionWithImages({
 
     const shuffled = shuffleArray(selected);
     const sessionId = uuidv4();
+    const firstStatement = Math.random() < 0.5 ? 1 : 2;
+    const secondStatement = firstStatement === 1 ? 2 : 1;
+    const halfPoint = Math.ceil(nImages / 2);
 
     const { rows: sessionRows } = await client.query(
       `
@@ -138,13 +156,14 @@ async function startSessionWithImages({
       const params = [];
       let idx = 1;
       shuffled.forEach((img, orderIndex) => {
-        values.push(`($${idx++}, $${idx++}, $${idx++}, NOW())`);
-        params.push(sessionId, img.image_id, orderIndex);
+        const statement = orderIndex < halfPoint ? firstStatement : secondStatement;
+        values.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, NOW())`);
+        params.push(sessionId, img.image_id, orderIndex, statement);
       });
 
       await client.query(
         `
-        INSERT INTO session_images (session_id, image_id, order_index, assigned_at)
+        INSERT INTO session_images (session_id, image_id, order_index, statement, assigned_at)
         VALUES ${values.join(", ")}
         `,
         params
@@ -168,6 +187,7 @@ async function startSessionWithImages({
       image_id: img.image_id,
       category: img.category,
       order_index: orderIndex,
+      statement: orderIndex < halfPoint ? firstStatement : secondStatement,
     }));
 
     return {

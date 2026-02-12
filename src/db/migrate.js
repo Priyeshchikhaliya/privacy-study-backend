@@ -64,11 +64,28 @@ async function migrate() {
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     image_id TEXT NOT NULL REFERENCES images(image_id),
     order_index INTEGER NOT NULL,
+    statement SMALLINT,
     assigned_at TIMESTAMPTZ DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
 
     PRIMARY KEY (session_id, image_id)
   );
+
+  ALTER TABLE IF EXISTS session_images
+    ADD COLUMN IF NOT EXISTS statement SMALLINT;
+
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conname = 'session_images_statement_check'
+    ) THEN
+      ALTER TABLE session_images
+        ADD CONSTRAINT session_images_statement_check
+        CHECK (statement IN (1, 2));
+    END IF;
+  END $$;
 
   CREATE TABLE IF NOT EXISTS annotations (
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
