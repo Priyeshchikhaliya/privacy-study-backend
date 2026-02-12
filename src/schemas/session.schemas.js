@@ -110,12 +110,14 @@ const redesignedImageSchema = z
   .refine(
     (image) => {
       const regions = Array.isArray(image.regions) ? image.regions : [];
-      if (regions.length === 0) return true;
+      const requiresObfuscation =
+        Number(image.statement) === 1 && regions.length > 0;
+      if (!requiresObfuscation) return true;
       return Boolean(image.obfuscation_method);
     },
     {
       message:
-        "obfuscation_method is required when at least one region is annotated.",
+        "obfuscation_method is required for statement 1 when regions are annotated.",
       path: ["obfuscation_method"],
     }
   );

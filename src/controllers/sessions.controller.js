@@ -190,6 +190,10 @@ async function getSession(req, res) {
     session_id: session.id,
     status: session.status,
     context: session.context,
+    first_statement:
+      Number(session.first_statement) === 1 || Number(session.first_statement) === 2
+        ? Number(session.first_statement)
+        : null,
     scenario: scenario
       ? {
           id: scenario.id,

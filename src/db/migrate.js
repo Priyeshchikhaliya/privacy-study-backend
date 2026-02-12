@@ -27,7 +27,21 @@ async function migrate() {
   ALTER TABLE IF EXISTS sessions
     ADD COLUMN IF NOT EXISTS stage TEXT NULL,
     ADD COLUMN IF NOT EXISTS n_images INTEGER,
-    ADD COLUMN IF NOT EXISTS dataset_version TEXT;
+    ADD COLUMN IF NOT EXISTS dataset_version TEXT,
+    ADD COLUMN IF NOT EXISTS first_statement SMALLINT;
+
+  DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conname = 'sessions_first_statement_check'
+    ) THEN
+      ALTER TABLE sessions
+        ADD CONSTRAINT sessions_first_statement_check
+        CHECK (first_statement IS NULL OR first_statement IN (1, 2));
+    END IF;
+  END $$;
 
   CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
   CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);
@@ -54,11 +68,17 @@ async function migrate() {
     image_id TEXT PRIMARY KEY,                 -- exact filename incl. extension
     category TEXT NOT NULL,
     assigned_count INTEGER NOT NULL DEFAULT 0,
+    statement1_assigned_count INTEGER NOT NULL DEFAULT 0,
+    statement2_assigned_count INTEGER NOT NULL DEFAULT 0,
     completed_count INTEGER NOT NULL DEFAULT 0,
     last_assigned_at TIMESTAMPTZ,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
   );
+
+  ALTER TABLE IF EXISTS images
+    ADD COLUMN IF NOT EXISTS statement1_assigned_count INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS statement2_assigned_count INTEGER NOT NULL DEFAULT 0;
 
   CREATE TABLE IF NOT EXISTS session_images (
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
