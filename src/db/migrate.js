@@ -14,6 +14,9 @@ async function migrate() {
     status TEXT NOT NULL CHECK (status IN ('in_progress', 'completed')),
     context TEXT NULL,
     stage TEXT NULL,
+    n_images INTEGER,
+    dataset_version TEXT,
+    statement_order SMALLINT,
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ NULL,
@@ -28,18 +31,24 @@ async function migrate() {
     ADD COLUMN IF NOT EXISTS stage TEXT NULL,
     ADD COLUMN IF NOT EXISTS n_images INTEGER,
     ADD COLUMN IF NOT EXISTS dataset_version TEXT,
-    ADD COLUMN IF NOT EXISTS first_statement SMALLINT;
+    ADD COLUMN IF NOT EXISTS statement_order SMALLINT;
+
+  ALTER TABLE IF EXISTS sessions
+    DROP CONSTRAINT IF EXISTS sessions_first_statement_check;
+
+  ALTER TABLE IF EXISTS sessions
+    DROP COLUMN IF EXISTS first_statement;
 
   DO $$
   BEGIN
     IF NOT EXISTS (
       SELECT 1
       FROM pg_constraint
-      WHERE conname = 'sessions_first_statement_check'
+      WHERE conname = 'sessions_statement_order_check'
     ) THEN
       ALTER TABLE sessions
-        ADD CONSTRAINT sessions_first_statement_check
-        CHECK (first_statement IS NULL OR first_statement IN (1, 2));
+        ADD CONSTRAINT sessions_statement_order_check
+        CHECK (statement_order IS NULL OR statement_order IN (1, 2));
     END IF;
   END $$;
 
@@ -68,8 +77,6 @@ async function migrate() {
     image_id TEXT PRIMARY KEY,                 -- exact filename incl. extension
     category TEXT NOT NULL,
     assigned_count INTEGER NOT NULL DEFAULT 0,
-    statement1_assigned_count INTEGER NOT NULL DEFAULT 0,
-    statement2_assigned_count INTEGER NOT NULL DEFAULT 0,
     completed_count INTEGER NOT NULL DEFAULT 0,
     last_assigned_at TIMESTAMPTZ,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -77,14 +84,13 @@ async function migrate() {
   );
 
   ALTER TABLE IF EXISTS images
-    ADD COLUMN IF NOT EXISTS statement1_assigned_count INTEGER NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS statement2_assigned_count INTEGER NOT NULL DEFAULT 0;
+    DROP COLUMN IF EXISTS statement1_assigned_count,
+    DROP COLUMN IF EXISTS statement2_assigned_count;
 
   CREATE TABLE IF NOT EXISTS session_images (
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     image_id TEXT NOT NULL REFERENCES images(image_id),
     order_index INTEGER NOT NULL,
-    statement SMALLINT,
     assigned_at TIMESTAMPTZ DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
 
@@ -92,20 +98,11 @@ async function migrate() {
   );
 
   ALTER TABLE IF EXISTS session_images
-    ADD COLUMN IF NOT EXISTS statement SMALLINT;
+    DROP CONSTRAINT IF EXISTS session_images_statement_check;
 
-  DO $$
-  BEGIN
-    IF NOT EXISTS (
-      SELECT 1
-      FROM pg_constraint
-      WHERE conname = 'session_images_statement_check'
-    ) THEN
-      ALTER TABLE session_images
-        ADD CONSTRAINT session_images_statement_check
-        CHECK (statement IN (1, 2));
-    END IF;
-  END $$;
+  ALTER TABLE IF EXISTS session_images
+    DROP COLUMN IF EXISTS statement,
+    DROP COLUMN IF EXISTS statement_order;
 
   CREATE TABLE IF NOT EXISTS annotations (
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,

@@ -190,9 +190,12 @@ async function getSession(req, res) {
     session_id: session.id,
     status: session.status,
     context: session.context,
-    first_statement:
-      Number(session.first_statement) === 1 || Number(session.first_statement) === 2
-        ? Number(session.first_statement)
+    n_images: Number.isInteger(Number(session.n_images))
+      ? Number(session.n_images)
+      : null,
+    statement_order:
+      Number(session.statement_order) === 1 || Number(session.statement_order) === 2
+        ? Number(session.statement_order)
         : null,
     scenario: scenario
       ? {
@@ -255,7 +258,34 @@ async function putProgress(req, res) {
 
   const updated = await saveProgress(sessionId, {
     stage: parsed.data.stage ?? null,
-    draft: normalizeDraftImageUrls(parsed.data.draft ?? {}),
+    draft: normalizeDraftImageUrls(
+      (() => {
+        if (parsed.data.draft && typeof parsed.data.draft === "object") {
+          return parsed.data.draft;
+        }
+
+        const directDraft = {};
+        if (Array.isArray(parsed.data.images)) {
+          directDraft.images = parsed.data.images;
+        }
+        if (
+          Object.prototype.hasOwnProperty.call(
+            parsed.data,
+            "obfuscation_evaluation"
+          )
+        ) {
+          directDraft.obfuscation_evaluation =
+            parsed.data.obfuscation_evaluation ?? null;
+        }
+        if (
+          parsed.data.demographics &&
+          typeof parsed.data.demographics === "object"
+        ) {
+          directDraft.demographics = parsed.data.demographics;
+        }
+        return directDraft;
+      })()
+    ),
   });
   res.json({
     ok: true,
@@ -285,6 +315,40 @@ async function postComplete(req, res) {
 
   const session = await getSessionById(sessionId);
   if (!session) return res.status(404).json({ error: "Session not found" });
+
+  if (
+    typeof session.context === "string" &&
+    session.context &&
+    parsed.data.context !== session.context
+  ) {
+    return res.status(400).json({
+      error: "context mismatch",
+      details: { session: session.context, payload: parsed.data.context },
+    });
+  }
+  if (
+    Number(session.statement_order) === 1 ||
+    Number(session.statement_order) === 2
+  ) {
+    if (Number(parsed.data.statement_order) !== Number(session.statement_order)) {
+      return res.status(400).json({
+        error: "statement_order mismatch",
+        details: {
+          session: Number(session.statement_order),
+          payload: Number(parsed.data.statement_order),
+        },
+      });
+    }
+  }
+  if (
+    Number.isInteger(Number(session.n_images)) &&
+    Number(parsed.data.n_images) !== Number(session.n_images)
+  ) {
+    return res.status(400).json({
+      error: "n_images mismatch",
+      details: { session: Number(session.n_images), payload: parsed.data.n_images },
+    });
+  }
 
   if (session.status === "completed") {
     // idempotent-ish: return success without rewriting

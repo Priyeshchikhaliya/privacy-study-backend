@@ -1,16 +1,13 @@
 const { z } = require("zod");
 
-const bboxSchema = z.object({
-  x: z.number().min(0).max(1),
-  y: z.number().min(0).max(1),
-  width: z.number().min(0).max(1),
-  height: z.number().min(0).max(1),
-});
-
-const reasonDetailSchema = z.object({
-  label: z.string().min(1),
-  description: z.string().min(1).optional(),
-});
+const bboxSchema = z
+  .object({
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().min(0).max(1),
+    height: z.number().min(0).max(1),
+  })
+  .strict();
 
 const APPROPRIATENESS_VALUES = [
   "slightly_inappropriate",
@@ -24,131 +21,112 @@ const APPROPRIATENESS_VALUES = [
   "difficult_to_say",
 ];
 
-const INFORMATION_TYPE_VALUES = [
-  "Personally Identifiable Information",
-  "Location",
-  "Personal Interests",
-  "Social Context",
-  "Others' Private Information",
-  "Others",
-  "None",
-];
+const obfuscationMethodSchema = z.enum(["blackbox", "blur", "censor", "avatar"]);
+const statementOrderSchema = z.union([z.literal(1), z.literal(2)]);
+const obfuscationMethodsSchema = z.array(obfuscationMethodSchema);
 
-const obfuscationMethodSchema = z.enum([
-  "blackbox",
-  "blur",
-  "censor",
-  "avatar",
-]);
-
-const hasValidInformationTypeSelection = (values) => {
-  const selected = Array.isArray(values) ? values : [];
-  if (selected.length === 0) return false;
-  const hasOthers = selected.includes("Others");
-  const hasNone = selected.includes("None");
-  if ((hasOthers || hasNone) && selected.length > 1) return false;
-  return true;
-};
-
-const legacyRegionSchema = z.object({
-  region_id: z.string().min(1),
-  bbox: bboxSchema,
-  region_privacy_rating: z.number().int().min(1).max(4),
-  region_type: z.string().min(1),
-  region_type_other: z.string().nullable().optional(),
-  reason_other: z.string().nullable().optional(),
-  reason_category: z.string().min(1),
-});
-
-const updatedRegionSchema = z.object({
-  region_id: z.string().min(1),
-  bbox: bboxSchema,
-  region_privacy_rating: z.number().int().min(1).max(4),
-  regionType: z.string().min(1),
-  regionTypeOtherText: z.string().nullable().optional(),
-  reasons: z.array(z.string().min(1)).min(1),
-  reasonDetails: z.array(reasonDetailSchema).optional(),
-  otherReasonText: z.string().nullable().optional(),
-});
-
-const redesignedRegionSchema = z
+const regionSchema = z
   .object({
     region_id: z.string().min(1),
     bbox: bboxSchema,
     appropriateness_rating: z.enum(APPROPRIATENESS_VALUES),
-    information_types: z.array(z.enum(INFORMATION_TYPE_VALUES)).min(1),
-    region_privacy_rating: z.number().int().min(1).max(4).nullable().optional(),
-    reason_category: z.string().nullable().optional(),
-    reasons: z.array(z.string().min(1)).optional(),
+    information_types: z.array(z.string().min(1)).min(1),
   })
-  .refine((region) => hasValidInformationTypeSelection(region.information_types), {
-    message: '"Others" and "None" must not be combined with other information types.',
-    path: ["information_types"],
-  });
+  .strict();
 
-const regionSchema = z.union([
-  legacyRegionSchema,
-  updatedRegionSchema,
-  redesignedRegionSchema,
-]);
+const draftRegionSchema = z
+  .object({
+    region_id: z.string().min(1),
+    bbox: bboxSchema,
+    appropriateness_rating: z
+      .enum(APPROPRIATENESS_VALUES)
+      .nullable()
+      .optional(),
+    information_types: z.array(z.string().min(1)).optional().default([]),
+  })
+  .strict();
 
-const legacyImageSchema = z.object({
-  image_id: z.string().min(1),
-  image_rating: z.number().int().min(1).max(4),
-  no_sensitive: z.boolean(),
-  regions: z.array(regionSchema),
-});
-
-const redesignedImageSchema = z
+const finalizedImageSchema = z
   .object({
     image_id: z.string().min(1),
-    statement: z.number().int().min(1).max(2),
     overall_sensitivity: z.number().int().min(1).max(4),
+    statement1_regions: z.array(regionSchema),
+    statement2_regions: z.array(regionSchema),
+    obfuscation_methods: obfuscationMethodsSchema.optional(),
     obfuscation_method: obfuscationMethodSchema.nullable().optional(),
-    regions: z.array(regionSchema),
   })
-  .refine(
-    (image) => {
-      const regions = Array.isArray(image.regions) ? image.regions : [];
-      const requiresObfuscation =
-        Number(image.statement) === 1 && regions.length > 0;
-      if (!requiresObfuscation) return true;
-      return Boolean(image.obfuscation_method);
-    },
-    {
+  .strict()
+  .superRefine((image, ctx) => {
+    if (image.statement1_regions.length === 0) return;
+    const methods = Array.isArray(image.obfuscation_methods)
+      ? image.obfuscation_methods
+      : image.obfuscation_method
+        ? [image.obfuscation_method]
+        : [];
+    if (methods.length > 0) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["obfuscation_methods"],
       message:
-        "obfuscation_method is required for statement 1 when regions are annotated.",
-      path: ["obfuscation_method"],
-    }
-  );
+        "At least one obfuscation method is required when statement1_regions has at least one region.",
+    });
+  });
 
-const imageSchema = z.union([legacyImageSchema, redesignedImageSchema]);
+const draftImageSchema = z
+  .object({
+    image_id: z.string().min(1),
+    overall_sensitivity: z.number().int().min(1).max(4).nullable().optional(),
+    statement1_regions: z.array(draftRegionSchema).default([]),
+    statement2_regions: z.array(draftRegionSchema).default([]),
+    obfuscation_methods: z.array(obfuscationMethodSchema).optional(),
+    obfuscation_method: obfuscationMethodSchema.nullable().optional(),
+  })
+  .strict();
 
-const demographicsSchema = z.object({
-  age_group: z.string().min(1),
-  gender: z.string().min(1),
-  academic_background: z.string().min(1),
-  current_residence: z.string().min(1),
-  ATI: z.record(z.string(), z.number().int().min(1).max(7)).optional(),
-  IUIPC: z.record(z.string(), z.number().int().min(1).max(7)).optional(),
-});
+const ATI_KEYS = ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9"];
+const IUIPC_KEYS = ["q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8"];
 
-const obfuscationSchema = z.object({
-  imageId: z.string().min(1).nullable(),
-  imageUrl: z.string().min(1).nullable().optional(),
-  obfuscationType: z.string().min(1),
-  methodsSelected: z.array(z.string()).default([]),
-  basedOnRegions: z.boolean(),
-  numRegionsUsed: z.number().int().min(0),
-  comfortSharing: z.number().int().min(1).max(5),
-  perceivedEffectiveness: z.number().int().min(1).max(5),
-  wantsObfuscation: z.boolean(),
-  comment: z.string().optional().nullable(),
-  timestamp: z.string().min(1).optional(),
-  skippedBecauseNoRegions: z.boolean().optional(),
-  skipped: z.boolean().optional(),
-  reason: z.string().optional(),
-});
+const buildLikertSchema = (keys) =>
+  z
+    .object(
+      Object.fromEntries(keys.map((key) => [key, z.number().int().min(1).max(7)]))
+    )
+    .strict();
+
+const isLikertMapEqual = (a, b, keys) =>
+  keys.every((key) => Number(a?.[key]) === Number(b?.[key]));
+
+const demographicsSchema = z
+  .object({
+    age_group: z.string().min(1),
+    gender: z.string().min(1),
+    academic_background: z.string().min(1),
+    current_residence: z.string().min(1),
+    ATI: buildLikertSchema(ATI_KEYS),
+    IUIPC: buildLikertSchema(IUIPC_KEYS),
+  })
+  .strict();
+
+const draftDemographicsSchema = z
+  .object({
+    age_group: z.string().min(1).optional(),
+    gender: z.string().min(1).optional(),
+    academic_background: z.string().min(1).optional(),
+    current_residence: z.string().min(1).optional(),
+    ATI: z.record(z.string(), z.number().int().min(1).max(7)).optional(),
+    IUIPC: z.record(z.string(), z.number().int().min(1).max(7)).optional(),
+  })
+  .strict();
+
+const obfuscationEvaluationSchema = z
+  .object({
+    example_image_id: z.string().min(1),
+    example_obfuscation_method: obfuscationMethodSchema,
+    comfort_sharing: z.number().int().min(1).max(5),
+    perceived_effectiveness: z.number().int().min(1).max(5),
+    wants_automatic: z.boolean(),
+  })
+  .strict();
 
 const stageSchema = z.enum([
   "welcome",
@@ -161,20 +139,73 @@ const stageSchema = z.enum([
   "completed",
 ]);
 
-const completePayloadSchema = z.object({
-  session_id: z.string().min(1),
-  started_at: z.string().min(1).optional(),
-  completed_at: z.string().min(1).optional(),
-  context: z.string().min(1).optional(),
-  images: z.array(imageSchema).min(1),
-  demographics: demographicsSchema,
-  obfuscation_response: obfuscationSchema.nullable().optional(),
-});
+const completePayloadSchema = z
+  .object({
+    session_id: z.string().min(1),
+    context: z.string().min(1),
+    statement_order: statementOrderSchema,
+    started_at: z.string().min(1),
+    completed_at: z.string().min(1),
+    n_images: z.number().int().min(1),
+    images: z.array(finalizedImageSchema).min(1),
+    demographics: demographicsSchema,
+    ATI: buildLikertSchema(ATI_KEYS),
+    IUIPC: buildLikertSchema(IUIPC_KEYS),
+    obfuscation_evaluation: obfuscationEvaluationSchema.nullable().optional(),
+  })
+  .strict()
+  .superRefine((payload, ctx) => {
+    const requiresObfuscationEvaluation = payload.images.some(
+      (image) => image.statement1_regions.length > 0
+    );
+    if (requiresObfuscationEvaluation && !payload.obfuscation_evaluation) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["obfuscation_evaluation"],
+        message:
+          "obfuscation_evaluation is required when any image has statement1_regions.",
+      });
+    }
+
+    if (payload.images.length !== payload.n_images) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["images"],
+        message: "images length must match n_images.",
+      });
+    }
+
+    if (!isLikertMapEqual(payload.ATI, payload.demographics.ATI, ATI_KEYS)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ATI"],
+        message: "ATI must match demographics.ATI.",
+      });
+    }
+    if (!isLikertMapEqual(payload.IUIPC, payload.demographics.IUIPC, IUIPC_KEYS)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["IUIPC"],
+        message: "IUIPC must match demographics.IUIPC.",
+      });
+    }
+  });
+
+const progressDraftSchema = z
+  .object({
+    images: z.array(draftImageSchema).optional(),
+    obfuscation_evaluation: obfuscationEvaluationSchema.nullable().optional(),
+    demographics: draftDemographicsSchema.optional(),
+  })
+  .strict();
 
 const progressPayloadSchema = z
   .object({
     stage: stageSchema.optional(),
-    draft: z.record(z.string(), z.any()).optional(),
+    draft: progressDraftSchema.optional(),
+    images: z.array(draftImageSchema).optional(),
+    obfuscation_evaluation: obfuscationEvaluationSchema.nullable().optional(),
+    demographics: draftDemographicsSchema.optional(),
   })
   .passthrough();
 

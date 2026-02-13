@@ -33,7 +33,7 @@ async function listSessions(status) {
 
   const { rows } = await pool.query(
     `
-    SELECT id, status, context, stage, first_statement, started_at, updated_at, completed_at
+    SELECT id, status, context, stage, statement_order, started_at, updated_at, completed_at
     FROM sessions
     ${whereClause}
     ORDER BY started_at DESC
@@ -46,7 +46,7 @@ async function listSessions(status) {
 async function getSessionDetails(sessionId) {
   const { rows } = await pool.query(
     `
-    SELECT id, status, context, stage, first_statement, started_at, updated_at, completed_at,
+    SELECT id, status, context, stage, statement_order, started_at, updated_at, completed_at,
            payload_draft, payload_final
     FROM sessions
     WHERE id = $1
@@ -99,7 +99,7 @@ const selectImageFromPayload = (payload, imageId) => {
 async function listImageSessions(imageId) {
   const { rows } = await pool.query(
     `
-    SELECT s.id, s.status, s.context, s.stage, s.first_statement, s.started_at, s.completed_at,
+    SELECT s.id, s.status, s.context, s.stage, s.statement_order, s.started_at, s.completed_at,
            s.payload_draft, s.payload_final
     FROM sessions s
     JOIN session_images si ON si.session_id = s.id
@@ -127,7 +127,7 @@ async function listImageSessions(imageId) {
       status: row.status,
       context: row.context,
       stage: row.stage,
-      first_statement: row.first_statement,
+      statement_order: row.statement_order,
       started_at: row.started_at,
       completed_at: row.completed_at,
       source,

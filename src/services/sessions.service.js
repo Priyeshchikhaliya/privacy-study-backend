@@ -10,93 +10,6 @@ function shuffleArray(items) {
   return arr;
 }
 
-function toCount(value) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getStatementBalanceCost(image, statement) {
-  let s1 = toCount(image?.statement1_assigned_count);
-  let s2 = toCount(image?.statement2_assigned_count);
-
-  if (statement === 1) s1 += 1;
-  if (statement === 2) s2 += 1;
-
-  return Math.abs(s1 - s2);
-}
-
-function buildStatementBalancedOrder(
-  selected,
-  categories,
-  perCategory,
-  firstStatement
-) {
-  if (!Array.isArray(selected) || selected.length === 0) return [];
-  if (!Array.isArray(categories) || categories.length === 0) {
-    return shuffleArray(selected);
-  }
-
-  // Required study setup: 2 images per category (total 16 across 8 categories).
-  if (!Number.isInteger(perCategory) || perCategory !== 2) {
-    return shuffleArray(selected);
-  }
-
-  const grouped = new Map(categories.map((category) => [category, []]));
-  selected.forEach((img) => {
-    const key = img?.category;
-    if (!grouped.has(key)) {
-      grouped.set(key, []);
-    }
-    grouped.get(key).push(img);
-  });
-
-  const hasExactPairPerCategory = categories.every(
-    (category) => (grouped.get(category) || []).length === 2
-  );
-  if (!hasExactPairPerCategory) {
-    return shuffleArray(selected);
-  }
-
-  const normalizedFirstStatement = firstStatement === 2 ? 2 : 1;
-  const secondStatement = normalizedFirstStatement === 1 ? 2 : 1;
-  const firstBlock = [];
-  const secondBlock = [];
-
-  categories.forEach((category) => {
-    const pair = shuffleArray(grouped.get(category));
-    const [a, b] = pair;
-
-    const optionACost =
-      getStatementBalanceCost(a, normalizedFirstStatement) +
-      getStatementBalanceCost(b, secondStatement);
-    const optionBCost =
-      getStatementBalanceCost(b, normalizedFirstStatement) +
-      getStatementBalanceCost(a, secondStatement);
-
-    if (optionACost < optionBCost) {
-      firstBlock.push(a);
-      secondBlock.push(b);
-      return;
-    }
-
-    if (optionBCost < optionACost) {
-      firstBlock.push(b);
-      secondBlock.push(a);
-      return;
-    }
-
-    if (Math.random() < 0.5) {
-      firstBlock.push(a);
-      secondBlock.push(b);
-    } else {
-      firstBlock.push(b);
-      secondBlock.push(a);
-    }
-  });
-
-  return [...shuffleArray(firstBlock), ...shuffleArray(secondBlock)];
-}
-
 async function createSession({ context = null } = {}) {
   const id = uuidv4();
 
@@ -118,7 +31,7 @@ async function getSessionById(sessionId) {
 async function getSessionWithImagesById(sessionId) {
   const { rows: sessionRows } = await pool.query(
     `
-    SELECT id, status, context, n_images, dataset_version, started_at, first_statement
+    SELECT id, status, context, n_images, dataset_version, started_at, statement_order
     FROM sessions
     WHERE id = $1
     `,
@@ -129,7 +42,7 @@ async function getSessionWithImagesById(sessionId) {
 
   const { rows: imageRows } = await pool.query(
     `
-    SELECT si.image_id, i.category, si.order_index, si.statement
+    SELECT si.image_id, i.category, si.order_index
     FROM session_images si
     JOIN images i ON i.image_id = si.image_id
     WHERE si.session_id = $1
@@ -138,21 +51,11 @@ async function getSessionWithImagesById(sessionId) {
     [sessionId]
   );
   if (!imageRows || imageRows.length === 0) return null;
-  const halfPoint = Math.ceil((session.n_images || imageRows.length) / 2);
-  const images = imageRows.map((row) => {
-    const statement =
-      Number(row.statement) === 1 || Number(row.statement) === 2
-        ? Number(row.statement)
-        : row.order_index < halfPoint
-          ? 1
-          : 2;
-    return {
-      image_id: row.image_id,
-      category: row.category,
-      order_index: row.order_index,
-      statement,
-    };
-  });
+  const images = imageRows.map((row) => ({
+    image_id: row.image_id,
+    category: row.category,
+    order_index: row.order_index,
+  }));
 
   return {
     id: session.id,
@@ -161,9 +64,9 @@ async function getSessionWithImagesById(sessionId) {
     n_images: session.n_images,
     dataset_version: session.dataset_version,
     started_at: session.started_at,
-    first_statement:
-      Number(session.first_statement) === 1 || Number(session.first_statement) === 2
-        ? Number(session.first_statement)
+    statement_order:
+      Number(session.statement_order) === 1 || Number(session.statement_order) === 2
+        ? Number(session.statement_order)
         : null,
     images,
   };
@@ -185,8 +88,7 @@ async function startSessionWithImages({
     for (const category of categories) {
       const { rows } = await client.query(
         `
-        SELECT image_id, category, assigned_count, completed_count,
-               statement1_assigned_count, statement2_assigned_count
+        SELECT image_id, category, assigned_count, completed_count
         FROM images
         WHERE enabled = true AND category = $1
         ORDER BY assigned_count ASC, completed_count ASC, random()
@@ -219,15 +121,8 @@ async function startSessionWithImages({
     }
 
     const sessionId = uuidv4();
-    const firstStatement = Math.random() < 0.5 ? 1 : 2;
-    const secondStatement = firstStatement === 1 ? 2 : 1;
-    const halfPoint = Math.ceil(nImages / 2);
-    const orderedImages = buildStatementBalancedOrder(
-      selected,
-      categories,
-      perCategory,
-      firstStatement
-    );
+    const statementOrder = Math.random() < 0.5 ? 1 : 2;
+    const orderedImages = shuffleArray(selected);
 
     const { rows: sessionRows } = await client.query(
       `
@@ -240,30 +135,27 @@ async function startSessionWithImages({
         updated_at,
         n_images,
         dataset_version,
-        first_statement
+        statement_order
       )
       VALUES ($1, 'in_progress', $2, $3, NOW(), NOW(), $4, $5, $6)
-      RETURNING id, status, context, n_images, dataset_version, started_at, first_statement
+      RETURNING id, status, context, n_images, dataset_version, started_at, statement_order
       `,
-      [sessionId, context, "annotate_started", nImages, datasetVersion, firstStatement]
+      [sessionId, context, "annotate_started", nImages, datasetVersion, statementOrder]
     );
     const session = sessionRows[0];
 
     if (orderedImages.length > 0) {
       const values = [];
       const params = [];
-      const assignedPairs = [];
       let idx = 1;
       orderedImages.forEach((img, orderIndex) => {
-        const statement = orderIndex < halfPoint ? firstStatement : secondStatement;
-        values.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++}, NOW())`);
-        params.push(sessionId, img.image_id, orderIndex, statement);
-        assignedPairs.push({ image_id: img.image_id, statement });
+        values.push(`($${idx++}, $${idx++}, $${idx++}, NOW())`);
+        params.push(sessionId, img.image_id, orderIndex);
       });
 
       await client.query(
         `
-        INSERT INTO session_images (session_id, image_id, order_index, statement, assigned_at)
+        INSERT INTO session_images (session_id, image_id, order_index, assigned_at)
         VALUES ${values.join(", ")}
         `,
         params
@@ -272,23 +164,17 @@ async function startSessionWithImages({
       const assignmentValues = [];
       const assignmentParams = [];
       let assignmentIdx = 1;
-      assignedPairs.forEach((entry) => {
-        assignmentValues.push(
-          `($${assignmentIdx++}::text, $${assignmentIdx++}::smallint)`
-        );
-        assignmentParams.push(entry.image_id, entry.statement);
+      orderedImages.forEach((entry) => {
+        assignmentValues.push(`($${assignmentIdx++}::text)`);
+        assignmentParams.push(entry.image_id);
       });
 
       await client.query(
         `
         UPDATE images AS i
         SET assigned_count = i.assigned_count + 1,
-            statement1_assigned_count = i.statement1_assigned_count +
-              CASE WHEN a.statement = 1 THEN 1 ELSE 0 END,
-            statement2_assigned_count = i.statement2_assigned_count +
-              CASE WHEN a.statement = 2 THEN 1 ELSE 0 END,
             last_assigned_at = NOW()
-        FROM (VALUES ${assignmentValues.join(", ")}) AS a(image_id, statement)
+        FROM (VALUES ${assignmentValues.join(", ")}) AS a(image_id)
         WHERE i.image_id = a.image_id
         `,
         assignmentParams
@@ -301,7 +187,6 @@ async function startSessionWithImages({
       image_id: img.image_id,
       category: img.category,
       order_index: orderIndex,
-      statement: orderIndex < halfPoint ? firstStatement : secondStatement,
     }));
 
     return {
@@ -311,7 +196,10 @@ async function startSessionWithImages({
       n_images: session.n_images,
       dataset_version: session.dataset_version,
       started_at: session.started_at,
-      first_statement: firstStatement,
+      statement_order:
+        Number(session.statement_order) === 1 || Number(session.statement_order) === 2
+          ? Number(session.statement_order)
+          : statementOrder,
       images,
     };
   } catch (err) {
