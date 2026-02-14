@@ -9,67 +9,56 @@ const bboxSchema = z
   })
   .strict();
 
-const SENSITIVITY_VALUES = [
-  "slightly_sensitive",
-  "moderately_sensitive",
-  "very_sensitive",
-  "extremely_sensitive",
+const APPROPRIATENESS_NOT_SHARE_VALUES = [
+  "slightly_inappropriate",
+  "moderately_inappropriate",
+  "very_inappropriate",
+  "completely_inappropriate",
   "difficult_to_say",
 ];
 
-const COMFORT_VALUES = [
-  "slightly_comfortable",
-  "moderately_comfortable",
-  "very_comfortable",
-  "completely_comfortable",
+const APPROPRIATENESS_TO_SHARE_VALUES = [
+  "slightly_appropriate",
+  "moderately_appropriate",
+  "very_appropriate",
+  "completely_appropriate",
   "difficult_to_say",
 ];
 
 const INFORMATION_TYPE_VALUES = [
-  "identity",
-  "location_address",
-  "financial",
-  "health_medical",
-  "children_family",
-  "religious_cultural",
-  "intimate_spaces",
-  "work_related",
-  "lifestyle_habits",
-  "others_info",
-  "other_specify",
+  "pii",
+  "location",
+  "personal_interests",
+  "social_context",
+  "private_spaces",
+  "others_private_info",
+  "others",
+  "none",
 ];
 
-const OTHER_INFORMATION_MIN_LENGTH = 3;
+const EXCLUSIVE_INFORMATION_TYPES = new Set(["none"]);
 
 const obfuscationMethodSchema = z.enum(["blackbox", "blur", "censor", "avatar"]);
 const statementOrderSchema = z.union([z.literal(1), z.literal(2)]);
-const sensitivitySchema = z.enum(SENSITIVITY_VALUES);
-const comfortSchema = z.enum(COMFORT_VALUES);
+const appropriatenessNotShareSchema = z.enum(APPROPRIATENESS_NOT_SHARE_VALUES);
+const appropriatenessToShareSchema = z.enum(APPROPRIATENESS_TO_SHARE_VALUES);
 const informationTypeSchema = z.enum(INFORMATION_TYPE_VALUES);
 
-const validateOtherInformation = (region, ctx) => {
+const validateInformationTypeSelection = (region, ctx) => {
   const informationTypes = Array.isArray(region?.information_types)
     ? region.information_types
     : [];
-  if (!informationTypes.includes("other_specify")) return;
+  if (informationTypes.length <= 1) return;
+  const selectedExclusiveTypes = informationTypes.filter((type) =>
+    EXCLUSIVE_INFORMATION_TYPES.has(type)
+  );
+  if (selectedExclusiveTypes.length === 0) return;
 
-  const otherText =
-    typeof region?.other_information === "string"
-      ? region.other_information.trim()
-      : "";
-  if (otherText.length === 0) {
+  if (informationTypes.includes("none")) {
     ctx.addIssue({
       code: "custom",
-      path: ["other_information"],
-      message: "other_information is required when other_specify is selected.",
-    });
-    return;
-  }
-  if (otherText.length < OTHER_INFORMATION_MIN_LENGTH) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["other_information"],
-      message: `other_information must be at least ${OTHER_INFORMATION_MIN_LENGTH} characters.`,
+      path: ["information_types"],
+      message: "'none' cannot be combined with other information types.",
     });
   }
 };
@@ -78,43 +67,45 @@ const statement1RegionSchema = z
   .object({
     region_id: z.string().min(1),
     bbox: bboxSchema,
-    sensitivity_rating: sensitivitySchema,
+    appropriateness_not_share: appropriatenessNotShareSchema,
     information_types: z.array(informationTypeSchema).min(1),
     other_information: z.string().optional(),
   })
   .strict()
-  .superRefine(validateOtherInformation);
+  .superRefine(validateInformationTypeSelection);
 
 const statement2RegionSchema = z
   .object({
     region_id: z.string().min(1),
     bbox: bboxSchema,
-    comfort_rating: comfortSchema,
+    appropriateness_to_share: appropriatenessToShareSchema,
     information_types: z.array(informationTypeSchema).min(1),
     other_information: z.string().optional(),
   })
   .strict()
-  .superRefine(validateOtherInformation);
+  .superRefine(validateInformationTypeSelection);
 
 const draftStatement1RegionSchema = z
   .object({
     region_id: z.string().min(1),
     bbox: bboxSchema,
-    sensitivity_rating: sensitivitySchema.nullable().optional(),
+    appropriateness_not_share: appropriatenessNotShareSchema.nullable().optional(),
     information_types: z.array(informationTypeSchema).optional().default([]),
     other_information: z.string().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(validateInformationTypeSelection);
 
 const draftStatement2RegionSchema = z
   .object({
     region_id: z.string().min(1),
     bbox: bboxSchema,
-    comfort_rating: comfortSchema.nullable().optional(),
+    appropriateness_to_share: appropriatenessToShareSchema.nullable().optional(),
     information_types: z.array(informationTypeSchema).optional().default([]),
     other_information: z.string().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(validateInformationTypeSelection);
 
 const finalizedImageSchema = z
   .object({
