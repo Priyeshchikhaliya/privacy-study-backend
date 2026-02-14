@@ -9,7 +9,7 @@ const bboxSchema = z
   })
   .strict();
 
-const APPROPRIATENESS_VALUES = [
+const LEGACY_APPROPRIATENESS_VALUES = [
   "slightly_inappropriate",
   "moderately_inappropriate",
   "very_inappropriate",
@@ -21,54 +21,174 @@ const APPROPRIATENESS_VALUES = [
   "difficult_to_say",
 ];
 
+const LEGACY_STATEMENT1_VALUES = [
+  "slightly_inappropriate",
+  "moderately_inappropriate",
+  "very_inappropriate",
+  "completely_inappropriate",
+  "difficult_to_say",
+];
+
+const LEGACY_STATEMENT2_VALUES = [
+  "slightly_appropriate",
+  "moderately_appropriate",
+  "very_appropriate",
+  "completely_appropriate",
+  "difficult_to_say",
+];
+
+const SENSITIVITY_VALUES = [
+  "slightly_sensitive",
+  "moderately_sensitive",
+  "very_sensitive",
+  "extremely_sensitive",
+  "difficult_to_say",
+];
+
+const COMFORT_VALUES = [
+  "slightly_comfortable",
+  "moderately_comfortable",
+  "very_comfortable",
+  "completely_comfortable",
+  "difficult_to_say",
+];
+
+const INFORMATION_TYPE_VALUES = [
+  "identity",
+  "location_address",
+  "financial",
+  "health_medical",
+  "children_family",
+  "religious_cultural",
+  "intimate_spaces",
+  "work_related",
+  "lifestyle_habits",
+  "others_info",
+  "other_specify",
+];
+
+const OTHER_INFORMATION_MIN_LENGTH = 3;
+
 const obfuscationMethodSchema = z.enum(["blackbox", "blur", "censor", "avatar"]);
 const statementOrderSchema = z.union([z.literal(1), z.literal(2)]);
-const obfuscationMethodsSchema = z.array(obfuscationMethodSchema);
+const legacyAppropriatenessSchema = z.enum(LEGACY_APPROPRIATENESS_VALUES);
+const sensitivitySchema = z.enum(SENSITIVITY_VALUES);
+const comfortSchema = z.enum(COMFORT_VALUES);
+const informationTypeSchema = z.enum(INFORMATION_TYPE_VALUES);
 
-const regionSchema = z
+const validateOtherInformation = (region, ctx) => {
+  const informationTypes = Array.isArray(region?.information_types)
+    ? region.information_types
+    : [];
+  if (!informationTypes.includes("other_specify")) return;
+
+  const otherText =
+    typeof region?.other_information === "string"
+      ? region.other_information.trim()
+      : "";
+  if (otherText.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["other_information"],
+      message: "other_information is required when other_specify is selected.",
+    });
+    return;
+  }
+  if (otherText.length < OTHER_INFORMATION_MIN_LENGTH) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["other_information"],
+      message: `other_information must be at least ${OTHER_INFORMATION_MIN_LENGTH} characters.`,
+    });
+  }
+};
+
+const finalizedRegionBaseSchema = z
   .object({
     region_id: z.string().min(1),
     bbox: bboxSchema,
-    appropriateness_rating: z.enum(APPROPRIATENESS_VALUES),
-    information_types: z.array(z.string().min(1)).min(1),
+    sensitivity_rating: sensitivitySchema.optional(),
+    comfort_rating: comfortSchema.optional(),
+    // Legacy fallback for clients that still submit appropriateness_rating.
+    appropriateness_rating: legacyAppropriatenessSchema.optional(),
+    information_types: z.array(informationTypeSchema).min(1),
+    other_information: z.string().optional(),
   })
   .strict();
 
-const draftRegionSchema = z
+const statement1RegionSchema = finalizedRegionBaseSchema.superRefine(
+  (region, ctx) => {
+    const hasCurrent = typeof region?.sensitivity_rating === "string";
+    const hasLegacy =
+      typeof region?.appropriateness_rating === "string" &&
+      LEGACY_STATEMENT1_VALUES.includes(region.appropriateness_rating);
+
+    if (!hasCurrent && !hasLegacy) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sensitivity_rating"],
+        message:
+          "statement1 region must include sensitivity_rating (or legacy appropriateness_rating).",
+      });
+    }
+
+    validateOtherInformation(region, ctx);
+  }
+);
+
+const statement2RegionSchema = finalizedRegionBaseSchema.superRefine(
+  (region, ctx) => {
+    const hasCurrent = typeof region?.comfort_rating === "string";
+    const hasLegacy =
+      typeof region?.appropriateness_rating === "string" &&
+      LEGACY_STATEMENT2_VALUES.includes(region.appropriateness_rating);
+
+    if (!hasCurrent && !hasLegacy) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["comfort_rating"],
+        message:
+          "statement2 region must include comfort_rating (or legacy appropriateness_rating).",
+      });
+    }
+
+    validateOtherInformation(region, ctx);
+  }
+);
+
+const draftRegionBaseSchema = z
   .object({
     region_id: z.string().min(1),
     bbox: bboxSchema,
-    appropriateness_rating: z
-      .enum(APPROPRIATENESS_VALUES)
-      .nullable()
-      .optional(),
-    information_types: z.array(z.string().min(1)).optional().default([]),
+    sensitivity_rating: sensitivitySchema.nullable().optional(),
+    comfort_rating: comfortSchema.nullable().optional(),
+    appropriateness_rating: legacyAppropriatenessSchema.nullable().optional(),
+    information_types: z.array(informationTypeSchema).optional().default([]),
+    other_information: z.string().optional(),
   })
   .strict();
+
+const draftStatement1RegionSchema = draftRegionBaseSchema;
+const draftStatement2RegionSchema = draftRegionBaseSchema;
 
 const finalizedImageSchema = z
   .object({
     image_id: z.string().min(1),
     overall_sensitivity: z.number().int().min(1).max(4),
-    statement1_regions: z.array(regionSchema),
-    statement2_regions: z.array(regionSchema),
-    obfuscation_methods: obfuscationMethodsSchema.optional(),
+    statement1_regions: z.array(statement1RegionSchema),
+    statement2_regions: z.array(statement2RegionSchema),
     obfuscation_method: obfuscationMethodSchema.nullable().optional(),
   })
   .strict()
   .superRefine((image, ctx) => {
     if (image.statement1_regions.length === 0) return;
-    const methods = Array.isArray(image.obfuscation_methods)
-      ? image.obfuscation_methods
-      : image.obfuscation_method
-        ? [image.obfuscation_method]
-        : [];
+    const methods = image.obfuscation_method ? [image.obfuscation_method] : [];
     if (methods.length > 0) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ["obfuscation_methods"],
+      path: ["obfuscation_method"],
       message:
-        "At least one obfuscation method is required when statement1_regions has at least one region.",
+        "An obfuscation method is required when statement1_regions has at least one region.",
     });
   });
 
@@ -76,9 +196,8 @@ const draftImageSchema = z
   .object({
     image_id: z.string().min(1),
     overall_sensitivity: z.number().int().min(1).max(4).nullable().optional(),
-    statement1_regions: z.array(draftRegionSchema).default([]),
-    statement2_regions: z.array(draftRegionSchema).default([]),
-    obfuscation_methods: z.array(obfuscationMethodSchema).optional(),
+    statement1_regions: z.array(draftStatement1RegionSchema).default([]),
+    statement2_regions: z.array(draftStatement2RegionSchema).default([]),
     obfuscation_method: obfuscationMethodSchema.nullable().optional(),
   })
   .strict();

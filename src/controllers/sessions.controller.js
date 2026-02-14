@@ -287,6 +287,9 @@ async function putProgress(req, res) {
       })()
     ),
   });
+  if (!updated) {
+    return res.status(404).json({ error: "Session not found" });
+  }
   res.json({
     ok: true,
     session_id: sessionId,
