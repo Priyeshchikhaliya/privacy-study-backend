@@ -59,7 +59,7 @@ const validateOtherInformation = (region, ctx) => {
       : "";
   if (otherText.length === 0) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["other_information"],
       message: "other_information is required when other_specify is selected.",
     });
@@ -67,7 +67,7 @@ const validateOtherInformation = (region, ctx) => {
   }
   if (otherText.length < OTHER_INFORMATION_MIN_LENGTH) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["other_information"],
       message: `other_information must be at least ${OTHER_INFORMATION_MIN_LENGTH} characters.`,
     });
@@ -130,7 +130,7 @@ const finalizedImageSchema = z
     const methods = image.obfuscation_method ? [image.obfuscation_method] : [];
     if (methods.length > 0) return;
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path: ["obfuscation_method"],
       message:
         "An obfuscation method is required when statement1_regions has at least one region.",
@@ -224,7 +224,7 @@ const completePayloadSchema = z
     );
     if (requiresObfuscationEvaluation && !payload.obfuscation_evaluation) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["obfuscation_evaluation"],
         message:
           "obfuscation_evaluation is required when any image has statement1_regions.",
@@ -233,7 +233,7 @@ const completePayloadSchema = z
 
     if (payload.images.length !== payload.n_images) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["images"],
         message: "images length must match n_images.",
       });
@@ -241,14 +241,14 @@ const completePayloadSchema = z
 
     if (!isLikertMapEqual(payload.ATI, payload.demographics.ATI, ATI_KEYS)) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["ATI"],
         message: "ATI must match demographics.ATI.",
       });
     }
     if (!isLikertMapEqual(payload.IUIPC, payload.demographics.IUIPC, IUIPC_KEYS)) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["IUIPC"],
         message: "IUIPC must match demographics.IUIPC.",
       });
