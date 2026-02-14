@@ -27,17 +27,12 @@ async function migrate() {
     payload_version INT NOT NULL DEFAULT 1
   );
 
+  -- Keep table shape resilient if a partial schema exists.
   ALTER TABLE IF EXISTS sessions
     ADD COLUMN IF NOT EXISTS stage TEXT NULL,
     ADD COLUMN IF NOT EXISTS n_images INTEGER,
     ADD COLUMN IF NOT EXISTS dataset_version TEXT,
     ADD COLUMN IF NOT EXISTS statement_order SMALLINT;
-
-  ALTER TABLE IF EXISTS sessions
-    DROP CONSTRAINT IF EXISTS sessions_first_statement_check;
-
-  ALTER TABLE IF EXISTS sessions
-    DROP COLUMN IF EXISTS first_statement;
 
   DO $$
   BEGIN
@@ -83,10 +78,6 @@ async function migrate() {
     created_at TIMESTAMPTZ DEFAULT NOW()
   );
 
-  ALTER TABLE IF EXISTS images
-    DROP COLUMN IF EXISTS statement1_assigned_count,
-    DROP COLUMN IF EXISTS statement2_assigned_count;
-
   CREATE TABLE IF NOT EXISTS session_images (
     session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     image_id TEXT NOT NULL REFERENCES images(image_id),
@@ -97,6 +88,22 @@ async function migrate() {
     PRIMARY KEY (session_id, image_id)
   );
 
+  CREATE INDEX IF NOT EXISTS idx_session_images_image_id
+    ON session_images(image_id);
+
+  -- =====================
+  -- Legacy cleanup
+  -- =====================
+  ALTER TABLE IF EXISTS sessions
+    DROP CONSTRAINT IF EXISTS sessions_first_statement_check;
+
+  ALTER TABLE IF EXISTS sessions
+    DROP COLUMN IF EXISTS first_statement;
+
+  ALTER TABLE IF EXISTS images
+    DROP COLUMN IF EXISTS statement1_assigned_count,
+    DROP COLUMN IF EXISTS statement2_assigned_count;
+
   ALTER TABLE IF EXISTS session_images
     DROP CONSTRAINT IF EXISTS session_images_statement_check;
 
@@ -104,16 +111,7 @@ async function migrate() {
     DROP COLUMN IF EXISTS statement,
     DROP COLUMN IF EXISTS statement_order;
 
-  CREATE TABLE IF NOT EXISTS annotations (
-    session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    image_id TEXT NOT NULL REFERENCES images(image_id),
-    annotation_data JSONB NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('draft', 'final')),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-
-    PRIMARY KEY (session_id, image_id)
-  );
+  DROP TABLE IF EXISTS annotations;
   `;
 
   await pool.query(sql);

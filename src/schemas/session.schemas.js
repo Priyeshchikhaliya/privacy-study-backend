@@ -9,34 +9,6 @@ const bboxSchema = z
   })
   .strict();
 
-const LEGACY_APPROPRIATENESS_VALUES = [
-  "slightly_inappropriate",
-  "moderately_inappropriate",
-  "very_inappropriate",
-  "completely_inappropriate",
-  "slightly_appropriate",
-  "moderately_appropriate",
-  "very_appropriate",
-  "completely_appropriate",
-  "difficult_to_say",
-];
-
-const LEGACY_STATEMENT1_VALUES = [
-  "slightly_inappropriate",
-  "moderately_inappropriate",
-  "very_inappropriate",
-  "completely_inappropriate",
-  "difficult_to_say",
-];
-
-const LEGACY_STATEMENT2_VALUES = [
-  "slightly_appropriate",
-  "moderately_appropriate",
-  "very_appropriate",
-  "completely_appropriate",
-  "difficult_to_say",
-];
-
 const SENSITIVITY_VALUES = [
   "slightly_sensitive",
   "moderately_sensitive",
@@ -71,7 +43,6 @@ const OTHER_INFORMATION_MIN_LENGTH = 3;
 
 const obfuscationMethodSchema = z.enum(["blackbox", "blur", "censor", "avatar"]);
 const statementOrderSchema = z.union([z.literal(1), z.literal(2)]);
-const legacyAppropriatenessSchema = z.enum(LEGACY_APPROPRIATENESS_VALUES);
 const sensitivitySchema = z.enum(SENSITIVITY_VALUES);
 const comfortSchema = z.enum(COMFORT_VALUES);
 const informationTypeSchema = z.enum(INFORMATION_TYPE_VALUES);
@@ -103,73 +74,47 @@ const validateOtherInformation = (region, ctx) => {
   }
 };
 
-const finalizedRegionBaseSchema = z
+const statement1RegionSchema = z
   .object({
     region_id: z.string().min(1),
     bbox: bboxSchema,
-    sensitivity_rating: sensitivitySchema.optional(),
-    comfort_rating: comfortSchema.optional(),
-    // Legacy fallback for clients that still submit appropriateness_rating.
-    appropriateness_rating: legacyAppropriatenessSchema.optional(),
+    sensitivity_rating: sensitivitySchema,
     information_types: z.array(informationTypeSchema).min(1),
     other_information: z.string().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(validateOtherInformation);
 
-const statement1RegionSchema = finalizedRegionBaseSchema.superRefine(
-  (region, ctx) => {
-    const hasCurrent = typeof region?.sensitivity_rating === "string";
-    const hasLegacy =
-      typeof region?.appropriateness_rating === "string" &&
-      LEGACY_STATEMENT1_VALUES.includes(region.appropriateness_rating);
+const statement2RegionSchema = z
+  .object({
+    region_id: z.string().min(1),
+    bbox: bboxSchema,
+    comfort_rating: comfortSchema,
+    information_types: z.array(informationTypeSchema).min(1),
+    other_information: z.string().optional(),
+  })
+  .strict()
+  .superRefine(validateOtherInformation);
 
-    if (!hasCurrent && !hasLegacy) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["sensitivity_rating"],
-        message:
-          "statement1 region must include sensitivity_rating (or legacy appropriateness_rating).",
-      });
-    }
-
-    validateOtherInformation(region, ctx);
-  }
-);
-
-const statement2RegionSchema = finalizedRegionBaseSchema.superRefine(
-  (region, ctx) => {
-    const hasCurrent = typeof region?.comfort_rating === "string";
-    const hasLegacy =
-      typeof region?.appropriateness_rating === "string" &&
-      LEGACY_STATEMENT2_VALUES.includes(region.appropriateness_rating);
-
-    if (!hasCurrent && !hasLegacy) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["comfort_rating"],
-        message:
-          "statement2 region must include comfort_rating (or legacy appropriateness_rating).",
-      });
-    }
-
-    validateOtherInformation(region, ctx);
-  }
-);
-
-const draftRegionBaseSchema = z
+const draftStatement1RegionSchema = z
   .object({
     region_id: z.string().min(1),
     bbox: bboxSchema,
     sensitivity_rating: sensitivitySchema.nullable().optional(),
-    comfort_rating: comfortSchema.nullable().optional(),
-    appropriateness_rating: legacyAppropriatenessSchema.nullable().optional(),
     information_types: z.array(informationTypeSchema).optional().default([]),
     other_information: z.string().optional(),
   })
   .strict();
 
-const draftStatement1RegionSchema = draftRegionBaseSchema;
-const draftStatement2RegionSchema = draftRegionBaseSchema;
+const draftStatement2RegionSchema = z
+  .object({
+    region_id: z.string().min(1),
+    bbox: bboxSchema,
+    comfort_rating: comfortSchema.nullable().optional(),
+    information_types: z.array(informationTypeSchema).optional().default([]),
+    other_information: z.string().optional(),
+  })
+  .strict();
 
 const finalizedImageSchema = z
   .object({
@@ -326,7 +271,7 @@ const progressPayloadSchema = z
     obfuscation_evaluation: obfuscationEvaluationSchema.nullable().optional(),
     demographics: draftDemographicsSchema.optional(),
   })
-  .passthrough();
+  .strict();
 
 module.exports = {
   completePayloadSchema,

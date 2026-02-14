@@ -10,22 +10,24 @@ function shuffleArray(items) {
   return arr;
 }
 
-async function createSession({ context = null } = {}) {
-  const id = uuidv4();
-
-  await pool.query(
-    `INSERT INTO sessions (id, status, context) VALUES ($1, 'in_progress', $2)`,
-    [id, context]
-  );
-
-  return { session_id: id, context };
-}
-
 async function getSessionById(sessionId) {
   const { rows } = await pool.query(`SELECT * FROM sessions WHERE id = $1`, [
     sessionId,
   ]);
   return rows[0] || null;
+}
+
+async function getSessionAssignedImageIds(sessionId) {
+  const { rows } = await pool.query(
+    `
+    SELECT image_id
+    FROM session_images
+    WHERE session_id = $1
+    ORDER BY order_index ASC
+    `,
+    [sessionId]
+  );
+  return rows.map((row) => row.image_id);
 }
 
 async function getSessionWithImagesById(sessionId) {
@@ -286,8 +288,8 @@ async function completeSession(sessionId, payloadFinal) {
 }
 
 module.exports = {
-  createSession,
   getSessionById,
+  getSessionAssignedImageIds,
   getSessionWithImagesById,
   startSessionWithImages,
   saveProgress,

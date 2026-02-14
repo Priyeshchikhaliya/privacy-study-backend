@@ -1,12 +1,11 @@
 const {
-  createSession,
   getSessionById,
+  getSessionAssignedImageIds,
   getSessionWithImagesById,
   saveProgress,
   completeSession,
   startSessionWithImages,
 } = require("../services/sessions.service");
-const { CONTEXT_ID_SET } = require("../config/contexts");
 const {
   getContextById,
   getEnabledContextsWithCompletedCounts,
@@ -15,51 +14,6 @@ const {
   progressPayloadSchema,
   completePayloadSchema,
 } = require("../schemas/session.schemas");
-
-const normalizeImageUrlValue = (value) => {
-  if (typeof value !== "string") return value;
-  const trimmed = value.trim();
-  if (!trimmed) return value;
-  if (trimmed.startsWith("/images_v1/")) return trimmed;
-  const match = trimmed.match(/\/images_v1\/[^?#]+(?:\?[^#]*)?/);
-  return match ? match[0] : trimmed;
-};
-
-const normalizeDraftImageUrls = (draft) => {
-  if (!draft || typeof draft !== "object") return draft;
-  if (!Array.isArray(draft.images)) return draft;
-
-  let changed = false;
-  const nextImages = draft.images.map((img) => {
-    if (!img || typeof img !== "object") return img;
-    const next = { ...img };
-    if ("imageUrl" in next) {
-      const normalized = normalizeImageUrlValue(next.imageUrl);
-      if (normalized !== next.imageUrl) {
-        next.imageUrl = normalized;
-        changed = true;
-      }
-    }
-    if ("image_url" in next) {
-      const normalized = normalizeImageUrlValue(next.image_url);
-      if (normalized !== next.image_url) {
-        next.image_url = normalized;
-        changed = true;
-      }
-    }
-    if ("src" in next) {
-      const normalized = normalizeImageUrlValue(next.src);
-      if (normalized !== next.src) {
-        next.src = normalized;
-        changed = true;
-      }
-    }
-    return next;
-  });
-
-  if (!changed) return draft;
-  return { ...draft, images: nextImages };
-};
 
 function pickBalancedContext(rows) {
   if (!rows || rows.length === 0) return null;
@@ -73,42 +27,68 @@ function pickBalancedContext(rows) {
   return candidates[idx] || null;
 }
 
-async function postCreateSession(req, res) {
-  const context =
-    typeof req.body?.context === "string" ? req.body.context.trim() : null;
+const getSubmittedImageIds = (images = []) =>
+  (Array.isArray(images) ? images : [])
+    .map((image) =>
+      typeof image?.image_id === "string" ? image.image_id.trim() : ""
+    )
+    .filter((imageId) => imageId.length > 0);
 
-  let scenario = null;
-  if (context) {
-    const existing = await getContextById(context);
-    if (!existing) {
-      return res.status(400).json({ error: "Unknown context id" });
+const getDuplicateValues = (values = []) => {
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const value of values) {
+    if (seen.has(value)) {
+      duplicates.add(value);
+      continue;
     }
-    if (!existing.enabled) {
-      return res.status(400).json({ error: "Context is disabled" });
-    }
-    scenario = existing;
-  } else {
-    const enabledContexts = await getEnabledContextsWithCompletedCounts();
-    scenario = pickBalancedContext(enabledContexts);
+    seen.add(value);
+  }
+  return [...duplicates];
+};
+
+async function validateSubmittedImagesForSession(
+  sessionId,
+  images,
+  { requireExactSet = false } = {}
+) {
+  const submittedImageIds = getSubmittedImageIds(images);
+  if (submittedImageIds.length === 0) return null;
+
+  const duplicateImageIds = getDuplicateValues(submittedImageIds);
+  if (duplicateImageIds.length > 0) {
+    return {
+      error: "duplicate_image_ids",
+      details: { duplicate_image_ids: duplicateImageIds },
+    };
   }
 
-  if (!scenario) {
-    return res.status(409).json({ error: "No enabled contexts available" });
+  const assignedImageIds = await getSessionAssignedImageIds(sessionId);
+  const assignedSet = new Set(assignedImageIds);
+  const unassignedImageIds = submittedImageIds.filter(
+    (imageId) => !assignedSet.has(imageId)
+  );
+  if (unassignedImageIds.length > 0) {
+    return {
+      error: "unassigned_image_ids",
+      details: { unassigned_image_ids: unassignedImageIds },
+    };
   }
 
-  const out = await createSession({ context: scenario.id });
-  res.status(201).json({
-    session_id: out.session_id,
-    context: scenario.id,
-    scenario: {
-      id: scenario.id,
-      title: scenario.title,
-      description: scenario.description,
-      name: scenario.title,
-      shortLabel: scenario.shortLabel || null,
-      annotationLine: scenario.description,
-    },
-  });
+  if (!requireExactSet) return null;
+
+  const submittedSet = new Set(submittedImageIds);
+  const missingAssignedImageIds = assignedImageIds.filter(
+    (imageId) => !submittedSet.has(imageId)
+  );
+  if (missingAssignedImageIds.length > 0) {
+    return {
+      error: "missing_assigned_image_ids",
+      details: { missing_assigned_image_ids: missingAssignedImageIds },
+    };
+  }
+
+  return null;
 }
 
 const IMAGE_CATEGORIES = [
@@ -214,9 +194,7 @@ async function getSession(req, res) {
   };
 
   if (includeDraft) {
-    response.payload_draft = normalizeDraftImageUrls(
-      session.payload_draft ?? null
-    );
+    response.payload_draft = session.payload_draft ?? null;
   }
 
   res.json(response);
@@ -256,36 +234,41 @@ async function putProgress(req, res) {
     return res.status(409).json({ error: "Session already completed" });
   }
 
+  const draftPayload = (() => {
+    if (parsed.data.draft && typeof parsed.data.draft === "object") {
+      return parsed.data.draft;
+    }
+
+    const directDraft = {};
+    if (Array.isArray(parsed.data.images)) {
+      directDraft.images = parsed.data.images;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(parsed.data, "obfuscation_evaluation")
+    ) {
+      directDraft.obfuscation_evaluation =
+        parsed.data.obfuscation_evaluation ?? null;
+    }
+    if (parsed.data.demographics && typeof parsed.data.demographics === "object") {
+      directDraft.demographics = parsed.data.demographics;
+    }
+    return directDraft;
+  })();
+
+  if (Array.isArray(draftPayload.images)) {
+    const imageValidationError = await validateSubmittedImagesForSession(
+      sessionId,
+      draftPayload.images,
+      { requireExactSet: false }
+    );
+    if (imageValidationError) {
+      return res.status(400).json(imageValidationError);
+    }
+  }
+
   const updated = await saveProgress(sessionId, {
     stage: parsed.data.stage ?? null,
-    draft: normalizeDraftImageUrls(
-      (() => {
-        if (parsed.data.draft && typeof parsed.data.draft === "object") {
-          return parsed.data.draft;
-        }
-
-        const directDraft = {};
-        if (Array.isArray(parsed.data.images)) {
-          directDraft.images = parsed.data.images;
-        }
-        if (
-          Object.prototype.hasOwnProperty.call(
-            parsed.data,
-            "obfuscation_evaluation"
-          )
-        ) {
-          directDraft.obfuscation_evaluation =
-            parsed.data.obfuscation_evaluation ?? null;
-        }
-        if (
-          parsed.data.demographics &&
-          typeof parsed.data.demographics === "object"
-        ) {
-          directDraft.demographics = parsed.data.demographics;
-        }
-        return directDraft;
-      })()
-    ),
+    draft: draftPayload,
   });
   if (!updated) {
     return res.status(404).json({ error: "Session not found" });
@@ -364,6 +347,15 @@ async function postComplete(req, res) {
     });
   }
 
+  const imageValidationError = await validateSubmittedImagesForSession(
+    sessionId,
+    parsed.data.images,
+    { requireExactSet: true }
+  );
+  if (imageValidationError) {
+    return res.status(400).json(imageValidationError);
+  }
+
   const result = await completeSession(sessionId, parsed.data);
   if (!result) {
     return res.status(409).json({ error: "Could not complete session" });
@@ -378,7 +370,6 @@ async function postComplete(req, res) {
 }
 
 module.exports = {
-  postCreateSession,
   postStartSession,
   getSession,
   putProgress,
